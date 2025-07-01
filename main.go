@@ -1,0 +1,520 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/AiNovelTools/internal/ai"
+	"github.com/AiNovelTools/internal/config"
+	"github.com/AiNovelTools/internal/input"
+	"github.com/AiNovelTools/internal/session"
+	"github.com/AiNovelTools/internal/tools"
+)
+
+func main() {
+	ctx := context.Background()
+	
+	// 初始化输入管理器
+	inputManager, err := input.NewManager()
+	if err != nil {
+		log.Fatal("Failed to initialize input manager:", err)
+	}
+	defer inputManager.Close()
+	
+	// 加载配置
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("Failed to load config:", err)
+	}
+
+	// 初始化AI客户端
+	aiClient := ai.NewClient(cfg.AI)
+	
+	// 初始化工具管理器
+	toolManager := tools.NewManager()
+	
+	// 初始化会话管理器
+	sessionManager := session.NewManager()
+
+	// 显示欢迎信息
+	inputManager.PrintWelcome()
+	printStatusLine(cfg, inputManager)
+	
+	// 设置初始模型提示符
+	updatePrompt(cfg, inputManager)
+	
+	for {
+		line, err := inputManager.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			inputManager.PrintError(fmt.Sprintf("Input error: %v", err))
+			continue
+		}
+		
+		if line == "" {
+			continue
+		}
+		
+		// 处理特殊命令
+		if handled := handleSpecialCommands(line, aiClient, sessionManager, cfg, inputManager); handled {
+			continue
+		}
+
+		// 显示加载动画
+		inputManager.ShowLoading("正在处理请求")
+		
+		// 处理用户输入
+		response, err := processInput(ctx, aiClient, toolManager, sessionManager, line)
+		
+		// 隐藏加载动画
+		inputManager.HideLoading()
+		
+		if err != nil {
+			inputManager.PrintError(err.Error())
+			continue
+		}
+		
+		inputManager.PrintAIResponse(response)
+	}
+	
+	// 保存会话
+	if err := sessionManager.SaveSession(sessionManager.GetCurrentSession()); err != nil {
+		inputManager.PrintWarning(fmt.Sprintf("保存会话失败: %v", err))
+	}
+	
+	fmt.Println("\n\033[36m再见! 👋\033[0m")
+}
+
+func printStatusLine(cfg *config.Config, inputManager *input.Manager) {
+	currentModel := "未知"
+	if model, exists := cfg.AI.Models[cfg.AI.Provider]; exists {
+		currentModel = model.Model
+	}
+	
+	statusMsg := fmt.Sprintf("当前模型: %s | 版本: %s", cfg.AI.Provider, currentModel)
+	inputManager.PrintInfo(statusMsg)
+	fmt.Println()
+}
+
+// 更新提示符显示当前模型
+func updatePrompt(cfg *config.Config, inputManager *input.Manager) {
+	currentModel := string(cfg.AI.Provider)
+	if model, exists := cfg.AI.Models[cfg.AI.Provider]; exists && model.Model != "" {
+		currentModel = model.Model
+	}
+	inputManager.SetModelPrompt(currentModel)
+}
+
+func handleSpecialCommands(input string, aiClient *ai.Client, sessionManager *session.Manager, cfg *config.Config, inputManager *input.Manager) bool {
+	// 检查是否以 / 开头的命令
+	if !strings.HasPrefix(input, "/") {
+		return false
+	}
+	
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return false
+	}
+	
+	command := parts[0]
+	
+	switch command {
+	case "/exit", "/quit":
+		inputManager.PrintInfo("再见! 👋")
+		os.Exit(0)
+		return true
+		
+	case "/help":
+		printHelp(inputManager)
+		return true
+		
+	case "/clear":
+		inputManager.ClearScreen()
+		inputManager.PrintWelcome()
+		printStatusLine(cfg, inputManager)
+		updatePrompt(cfg, inputManager)
+		return true
+		
+	case "/status":
+		printStatus(sessionManager, cfg, inputManager)
+		return true
+		
+	case "/sessions":
+		listSessions(sessionManager, inputManager)
+		return true
+		
+	case "/switch":
+		if len(parts) > 1 {
+			switchProvider(parts[1], aiClient, cfg, inputManager)
+		} else {
+			inputManager.PrintError("用法: /switch <提供商> (zhipu|deepseek)")
+		}
+		return true
+		
+	case "/new":
+		name := "session"
+		if len(parts) > 1 {
+			name = strings.Join(parts[1:], " ")
+		}
+		newSession(sessionManager, name, inputManager)
+		return true
+		
+	case "/config":
+		if len(parts) > 1 {
+			handleConfigCommand(parts[1:], cfg, inputManager)
+		} else {
+			showConfigHelp(inputManager)
+		}
+		return true
+	}
+	
+	return false
+}
+
+func printHelp(inputManager *input.Manager) {
+	fmt.Println("\033[1;36m📋 可用命令:\033[0m")
+	fmt.Println("  \033[33m/help\033[0m       - 显示此帮助信息")
+	fmt.Println("  \033[33m/clear\033[0m      - 清除屏幕")
+	fmt.Println("  \033[33m/status\033[0m     - 显示当前状态")
+	fmt.Println("  \033[33m/sessions\033[0m   - 列出所有会话")
+	fmt.Println("  \033[33m/new\033[0m [名称] - 创建新会话")
+	fmt.Println("  \033[33m/switch\033[0m <模型> - 切换AI模型 (zhipu|deepseek)")
+	fmt.Println("  \033[33m/config\033[0m     - 配置管理")
+	fmt.Println("  \033[33m/exit /quit\033[0m - 退出程序")
+	fmt.Println()
+	fmt.Println("\033[1;36m🤖 AI对话:\033[0m")
+	fmt.Println("  直接输入你的问题或请求，我会帮助你！")
+	fmt.Println("  \033[90m示例:\033[0m")
+	fmt.Println("    • '读取文件 main.go'")
+	fmt.Println("    • '列出当前目录下的文件'")
+	fmt.Println("    • '在项目中搜索 TODO'")
+	fmt.Println("    • '解释这段代码'")
+	fmt.Println()
+	fmt.Println("\033[1;36m⌨️  输入功能:\033[0m")
+	fmt.Println("  • 使用 \033[33m↑↓\033[0m 方向键浏览历史命令")
+	fmt.Println("  • 使用 \033[33mTab\033[0m 键自动补全")
+	fmt.Println("  • 使用 \033[33mCtrl+C\033[0m 中断，\033[33mCtrl+D\033[0m 退出")
+}
+
+func printStatus(sessionManager *session.Manager, cfg *config.Config, inputManager *input.Manager) {
+	session := sessionManager.GetCurrentSession()
+	fmt.Printf("\033[1;36m📊 当前状态:\033[0m\n")
+	fmt.Printf("  \033[36m会话:\033[0m %s (ID: %s)\n", session.Name, session.ID[:8])
+	fmt.Printf("  \033[36m提供商:\033[0m %s\n", cfg.AI.Provider)
+	
+	if currentModel, exists := cfg.AI.Models[cfg.AI.Provider]; exists {
+		fmt.Printf("  \033[36m模型:\033[0m %s\n", currentModel.Model)
+		if currentModel.APIKey != "" {
+			maskedKey := currentModel.APIKey
+			if len(maskedKey) > 8 {
+				maskedKey = maskedKey[:8] + "***"
+			} else {
+				maskedKey = "***"
+			}
+			fmt.Printf("  \033[36mAPI密钥:\033[0m %s\n", maskedKey)
+		} else {
+			fmt.Printf("  \033[36mAPI密钥:\033[0m \033[31m未配置\033[0m\n")
+		}
+	}
+	
+	fmt.Printf("  \033[36m工作目录:\033[0m %s\n", session.Context.WorkingDirectory)
+	fmt.Printf("  \033[36m消息数量:\033[0m %d\n", len(session.Messages))
+	if session.Context.ProjectInfo.Name != "" {
+		fmt.Printf("  \033[36m项目:\033[0m %s (%s)\n", session.Context.ProjectInfo.Name, session.Context.ProjectInfo.Language)
+	}
+	
+	// 显示所有配置的模型
+	fmt.Printf("\n\033[1;36m🔧 已配置模型:\033[0m\n")
+	for provider, modelConfig := range cfg.AI.Models {
+		status := "\033[31m✗\033[0m"
+		if modelConfig.APIKey != "" {
+			status = "\033[32m✓\033[0m"
+		}
+		marker := "  "
+		if provider == cfg.AI.Provider {
+			marker = "👉 "
+		}
+		fmt.Printf("%s%s %s (%s)\n", marker, status, provider, modelConfig.Model)
+	}
+}
+
+func listSessions(sessionManager *session.Manager, inputManager *input.Manager) {
+	sessions, err := sessionManager.ListSessions()
+	if err != nil {
+		inputManager.PrintError(fmt.Sprintf("获取会话列表失败: %v", err))
+		return
+	}
+	
+	if len(sessions) == 0 {
+		inputManager.PrintInfo("未找到保存的会话")
+		return
+	}
+	
+	fmt.Println("\033[1;36m📝 已保存会话:\033[0m")
+	for i, sess := range sessions {
+		marker := "  "
+		if sess.ID == sessionManager.GetCurrentSession().ID {
+			marker = "👉 "
+		}
+		fmt.Printf("%s%d. \033[33m%s\033[0m (ID: %s) - %d 条消息\n", 
+			marker, i+1, sess.Name, sess.ID[:8], len(sess.Messages))
+	}
+}
+
+func switchProvider(provider string, aiClient *ai.Client, cfg *config.Config, inputManager *input.Manager) {
+	var newProvider ai.Provider
+	switch strings.ToLower(provider) {
+	case "zhipu":
+		newProvider = ai.ProviderZhipu
+	case "deepseek":
+		newProvider = ai.ProviderDeepseek
+	default:
+		inputManager.PrintError("不支持的提供商，请使用 'zhipu' 或 'deepseek'")
+		return
+	}
+	
+	if err := aiClient.SwitchProvider(newProvider); err != nil {
+		inputManager.PrintError(fmt.Sprintf("切换提供商失败: %v", err))
+		return
+	}
+	
+	cfg.AI.Provider = newProvider
+	inputManager.PrintSuccess(fmt.Sprintf("已切换到 %s 提供商", newProvider))
+	
+	// 更新提示符显示新模型
+	updatePrompt(cfg, inputManager)
+}
+
+func newSession(sessionManager *session.Manager, name string, inputManager *input.Manager) {
+	session := sessionManager.NewSession(name)
+	inputManager.PrintSuccess(fmt.Sprintf("已创建新会话: %s (ID: %s)", session.Name, session.ID[:8]))
+}
+
+func showConfigHelp(inputManager *input.Manager) {
+	fmt.Println("\033[1;36m⚙️  配置命令:\033[0m")
+	fmt.Println("  \033[33m/config show\033[0m          - 显示当前配置")
+	fmt.Println("  \033[33m/config path\033[0m          - 显示配置文件路径")
+	fmt.Println("  \033[33m/config set\033[0m <键> <值> - 设置配置值")
+	fmt.Println("  \033[33m/config edit\033[0m          - 用默认编辑器打开配置文件")
+	fmt.Println()
+	fmt.Println("\033[1;36m📝 示例:\033[0m")
+	fmt.Println("  \033[90m/config set zhipu.api_key sk-xxx\033[0m")
+	fmt.Println("  \033[90m/config set deepseek.api_key sk-xxx\033[0m")
+	fmt.Println("  \033[90m/config set ai.provider zhipu\033[0m")
+}
+
+func handleConfigCommand(args []string, cfg *config.Config, inputManager *input.Manager) {
+	if len(args) == 0 {
+		showConfigHelp(inputManager)
+		return
+	}
+	
+	command := args[0]
+	switch command {
+	case "show":
+		showConfig(cfg, inputManager)
+	case "path":
+		showConfigPath(inputManager)
+	case "set":
+		if len(args) < 3 {
+			inputManager.PrintError("用法: /config set <键> <值>")
+			return
+		}
+		setConfigValue(args[1], args[2], cfg, inputManager)
+	case "edit":
+		editConfig(inputManager)
+	default:
+		showConfigHelp(inputManager)
+	}
+}
+
+func showConfig(cfg *config.Config, inputManager *input.Manager) {
+	fmt.Println("\033[1;36m⚙️  当前配置:\033[0m")
+	fmt.Printf("\033[36m提供商:\033[0m %s\n", cfg.AI.Provider)
+	fmt.Println("\n\033[36m模型:\033[0m")
+	for provider, modelConfig := range cfg.AI.Models {
+		apiKeyStatus := "\033[31m未设置\033[0m"
+		if modelConfig.APIKey != "" {
+			apiKeyStatus = "\033[32m已配置\033[0m"
+		}
+		fmt.Printf("  \033[33m%s:\033[0m\n", provider)
+		fmt.Printf("    模型: %s\n", modelConfig.Model)
+		fmt.Printf("    API密钥: %s\n", apiKeyStatus)
+		fmt.Printf("    基础URL: %s\n", modelConfig.BaseURL)
+	}
+}
+
+func showConfigPath(inputManager *input.Manager) {
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		inputManager.PrintError(fmt.Sprintf("获取配置路径失败: %v", err))
+		return
+	}
+	configFile := filepath.Join(configDir, "config.yaml")
+	fmt.Printf("\033[1;36m📁 配置路径:\033[0m\n")
+	fmt.Printf("\033[36m配置文件:\033[0m %s\n", configFile)
+	fmt.Printf("\033[36m配置目录:\033[0m %s\n", configDir)
+}
+
+func setConfigValue(key, value string, cfg *config.Config, inputManager *input.Manager) {
+	parts := strings.Split(key, ".")
+	if len(parts) != 2 {
+		inputManager.PrintError("键格式: <提供商>.<字段> 或 ai.<字段>")
+		fmt.Println("\033[90m示例: zhipu.api_key, deepseek.api_key, ai.provider\033[0m")
+		return
+	}
+	
+	section, field := parts[0], parts[1]
+	
+	switch section {
+	case "ai":
+		if field == "provider" {
+			if value == "zhipu" || value == "deepseek" {
+				cfg.AI.Provider = ai.Provider(value)
+				inputManager.PrintSuccess(fmt.Sprintf("已设置AI提供商为: %s", value))
+				// 更新提示符
+				updatePrompt(cfg, inputManager)
+			} else {
+				inputManager.PrintError("提供商必须是 'zhipu' 或 'deepseek'")
+				return
+			}
+		} else {
+			inputManager.PrintError(fmt.Sprintf("未知的AI字段: %s", field))
+			return
+		}
+	case "zhipu", "deepseek":
+		provider := ai.Provider(section)
+		
+		// 确保Models map已初始化
+		if cfg.AI.Models == nil {
+			cfg.AI.Models = make(map[ai.Provider]ai.ModelConfig)
+		}
+		
+		// 获取或创建默认配置
+		modelConfig, exists := cfg.AI.Models[provider]
+		if !exists {
+			if provider == ai.ProviderZhipu {
+				modelConfig = ai.ModelConfig{
+					APIKey:  "",
+					BaseURL: "https://open.bigmodel.cn/api/paas/v4",
+					Model:   "glm-4",
+				}
+			} else {
+				modelConfig = ai.ModelConfig{
+					APIKey:  "",
+					BaseURL: "https://api.deepseek.com",
+					Model:   "deepseek-chat",
+				}
+			}
+		}
+		
+		switch field {
+		case "api_key":
+			modelConfig.APIKey = value
+			cfg.AI.Models[provider] = modelConfig
+			inputManager.PrintSuccess(fmt.Sprintf("已设置 %s API密钥", section))
+		case "model":
+			modelConfig.Model = value
+			cfg.AI.Models[provider] = modelConfig
+			inputManager.PrintSuccess(fmt.Sprintf("已设置 %s 模型为: %s", section, value))
+		case "base_url":
+			modelConfig.BaseURL = value
+			cfg.AI.Models[provider] = modelConfig
+			inputManager.PrintSuccess(fmt.Sprintf("已设置 %s 基础URL为: %s", section, value))
+		default:
+			inputManager.PrintError(fmt.Sprintf("未知的 %s 字段: %s", section, field))
+			return
+		}
+	default:
+		inputManager.PrintError(fmt.Sprintf("未知的配置段: %s", section))
+		return
+	}
+	
+	if err := cfg.Save(); err != nil {
+		inputManager.PrintError(fmt.Sprintf("保存配置失败: %v", err))
+	} else {
+		inputManager.PrintInfo("配置保存成功")
+	}
+}
+
+func editConfig(inputManager *input.Manager) {
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		inputManager.PrintError(fmt.Sprintf("获取配置路径失败: %v", err))
+		return
+	}
+	configFile := filepath.Join(configDir, "config.yaml")
+	
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("notepad", configFile)
+	case "darwin":
+		cmd = exec.Command("open", configFile)
+	default:
+		// 尝试常见的编辑器
+		editors := []string{"code", "nano", "vim", "vi"}
+		for _, editor := range editors {
+			if _, err := exec.LookPath(editor); err == nil {
+				cmd = exec.Command(editor, configFile)
+				break
+			}
+		}
+	}
+	
+	if cmd == nil {
+		inputManager.PrintInfo(fmt.Sprintf("请手动编辑: %s", configFile))
+		return
+	}
+	
+	inputManager.PrintInfo(fmt.Sprintf("正在打开配置文件: %s", configFile))
+	if err := cmd.Run(); err != nil {
+		inputManager.PrintError(fmt.Sprintf("打开编辑器失败: %v", err))
+	}
+}
+
+func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.Manager, sessionManager *session.Manager, input string) (string, error) {
+	// 获取当前会话
+	currentSession := sessionManager.GetCurrentSession()
+	
+	// 添加用户消息到会话历史
+	currentSession.AddMessage("user", input)
+	
+	// 调用AI模型
+	response, toolCalls, err := aiClient.Chat(ctx, currentSession.GetMessages())
+	if err != nil {
+		return "", fmt.Errorf("AI request failed: %w", err)
+	}
+	
+	// 执行工具调用
+	if len(toolCalls) > 0 {
+		toolResults, err := toolManager.ExecuteTools(ctx, toolCalls)
+		if err != nil {
+			return "", fmt.Errorf("tool execution failed: %w", err)
+		}
+		
+		// 将工具结果添加到会话并重新调用AI
+		for _, result := range toolResults {
+			currentSession.AddToolResult(result)
+		}
+		
+		response, _, err = aiClient.Chat(ctx, currentSession.GetMessages())
+		if err != nil {
+			return "", fmt.Errorf("AI follow-up request failed: %w", err)
+		}
+	}
+	
+	// 添加AI响应到会话历史
+	currentSession.AddMessage("assistant", response)
+	
+	return response, nil
+}
