@@ -234,7 +234,9 @@ func (m *Manager) ExecuteTools(ctx context.Context, toolCalls []ai.ToolCall) ([]
 type ReadFileTool struct{}
 
 func (t *ReadFileTool) Name() string { return "read_file" }
-func (t *ReadFileTool) Description() string { return "Read the contents of a file" }
+func (t *ReadFileTool) Description() string { 
+	return "读取文件内容。当用户询问文件内容、评价文件质量、分析文件问题时必须使用此工具。例如：'主角设定怎么样?'需要先读取主角设定.txt"
+}
 
 func (t *ReadFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	filePath, ok := params["file_path"].(string)
@@ -284,7 +286,9 @@ func (t *WriteFileTool) Execute(ctx context.Context, params map[string]interface
 type ListFilesTool struct{}
 
 func (t *ListFilesTool) Name() string { return "list_files" }
-func (t *ListFilesTool) Description() string { return "List files and directories in a path" }
+func (t *ListFilesTool) Description() string { 
+	return "列出目录中的文件和子目录。当用户询问'有哪些文件'、'目录内容'、'文件列表'时使用此工具"
+}
 
 func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
@@ -1399,6 +1403,9 @@ func (m *Manager) GetToolDefinitions() []map[string]interface{} {
 	var tools []map[string]interface{}
 	
 	for name, tool := range m.tools {
+		parameters := getToolParameters(name)
+		required := getRequiredParameters(name)
+		
 		toolDef := map[string]interface{}{
 			"type": "function",
 			"function": map[string]interface{}{
@@ -1406,7 +1413,8 @@ func (m *Manager) GetToolDefinitions() []map[string]interface{} {
 				"description": tool.Description(),
 				"parameters": map[string]interface{}{
 					"type":       "object",
-					"properties": getToolParameters(name),
+					"properties": parameters,
+					"required":   required,
 				},
 			},
 		}
@@ -1570,5 +1578,35 @@ func getToolParameters(toolName string) map[string]interface{} {
 		}
 	default:
 		return map[string]interface{}{}
+	}
+}
+
+// getRequiredParameters 获取工具的必需参数列表
+func getRequiredParameters(toolName string) []string {
+	switch toolName {
+	case "read_file":
+		return []string{"file_path"}
+	case "write_file":
+		return []string{"file_path", "content"}
+	case "search":
+		return []string{"query"}
+	case "execute_command":
+		return []string{"command"}
+	case "file_info":
+		return []string{"file_path"}
+	case "edit_file":
+		return []string{"file_path", "content"}
+	case "create_directory":
+		return []string{"directory_path"}
+	case "delete_file":
+		return []string{"file_path"}
+	case "copy_file":
+		return []string{"source_path", "destination_path"}
+	case "move_file", "rename_file":
+		return []string{"old_path", "new_path"}
+	case "replace_text":
+		return []string{"file_path", "old_text", "new_text"}
+	default:
+		return []string{}
 	}
 }
