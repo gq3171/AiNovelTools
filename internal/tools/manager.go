@@ -84,6 +84,11 @@ func NewManager() *Manager {
 	m.RegisterTool(&GetSmartContextTool{contextManager: m.contextManager})
 	m.RegisterTool(&SmartTaskPlannerTool{})
 	
+	// 智能分析工具
+	m.RegisterTool(&FileRelationshipAnalyzerTool{})
+	m.RegisterTool(&ConsistencyCheckerTool{})
+	m.RegisterTool(&CreativeStageDetectorTool{})
+	
 	// 小说写作工具
 	m.RegisterTool(&InitNovelProjectTool{novelManager: m.novelManager})
 	m.RegisterTool(&GetNovelContextTool{novelManager: m.novelManager})
@@ -1697,6 +1702,8 @@ func getToolParameters(toolName string) map[string]interface{} {
 				"description": "需要规划的任务描述",
 			},
 		}
+	case "analyze_file_relationships":
+		return map[string]interface{}{} // 无需参数，自动分析当前目录
 	default:
 		return map[string]interface{}{}
 	}
@@ -1924,4 +1931,370 @@ func generateGeneralPlan(taskDesc string) string {
 
 `
 	return plan
+}
+
+// ========== 智能分析工具 ==========
+
+// FileRelationshipAnalyzerTool - 智能文件关联分析工具
+type FileRelationshipAnalyzerTool struct{}
+
+func (t *FileRelationshipAnalyzerTool) Name() string { return "analyze_file_relationships" }
+func (t *FileRelationshipAnalyzerTool) Description() string {
+	return "智能分析项目中所有文件的关联关系，发现文件间的逻辑依赖、内容关联和潜在冲突，为用户提供项目结构洞察"
+}
+
+func (t *FileRelationshipAnalyzerTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	return analyzeFileRelationships()
+}
+
+func analyzeFileRelationships() (string, error) {
+	// 获取当前目录所有文件
+	currentDir, _ := os.Getwd()
+	files, err := os.ReadDir(currentDir)
+	if err != nil {
+		return "", fmt.Errorf("无法读取目录: %w", err)
+	}
+	
+	var result strings.Builder
+	result.WriteString("🔗 智能文件关联分析报告\n")
+	result.WriteString("==========================================\n\n")
+	
+	// 分析的文件类型
+	novelFiles := make(map[string]string)
+	allFiles := make(map[string]string)
+	
+	// 读取所有相关文件
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		
+		fileName := file.Name()
+		filePath := filepath.Join(currentDir, fileName)
+		
+		// 只分析文本文件
+		if strings.HasSuffix(fileName, ".txt") || strings.HasSuffix(fileName, ".md") {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				continue
+			}
+			
+			contentStr := string(content)
+			allFiles[fileName] = contentStr
+			
+			// 识别小说相关文件
+			if isNovelRelatedFile(fileName, contentStr) {
+				novelFiles[fileName] = contentStr
+			}
+		}
+	}
+	
+	if len(novelFiles) == 0 {
+		result.WriteString("❌ 未检测到小说创作相关文件\n")
+		result.WriteString("💡 建议创建：世界观.txt、主角设定.txt、大纲.txt 等文件\n")
+		return result.String(), nil
+	}
+	
+	// 1. 文件分类分析
+	result.WriteString("📁 文件分类分析:\n")
+	categories := categorizeFiles(novelFiles)
+	for category, fileList := range categories {
+		result.WriteString(fmt.Sprintf("  🏷️  %s: %s\n", category, strings.Join(fileList, ", ")))
+	}
+	result.WriteString("\n")
+	
+	// 2. 关联关系分析
+	result.WriteString("🔗 文件关联关系:\n")
+	relationships := findFileRelationships(novelFiles)
+	for file, related := range relationships {
+		if len(related) > 0 {
+			result.WriteString(fmt.Sprintf("  📄 %s\n", file))
+			for _, rel := range related {
+				result.WriteString(fmt.Sprintf("    ↳ %s (关联度: %s)\n", rel.File, rel.Strength))
+			}
+		}
+	}
+	result.WriteString("\n")
+	
+	// 3. 完整性分析
+	result.WriteString("✅ 项目完整性检查:\n")
+	completeness := analyzeProjectCompleteness(categories)
+	for _, item := range completeness {
+		status := "✅"
+		if !item.Exists {
+			status = "❌"
+		}
+		result.WriteString(fmt.Sprintf("  %s %s: %s\n", status, item.Category, item.Description))
+	}
+	result.WriteString("\n")
+	
+	// 4. 建议和洞察
+	result.WriteString("💡 智能建议:\n")
+	suggestions := generateSmartSuggestions(categories, relationships)
+	for i, suggestion := range suggestions {
+		result.WriteString(fmt.Sprintf("  %d. %s\n", i+1, suggestion))
+	}
+	
+	return result.String(), nil
+}
+
+// 文件关联关系结构
+type FileRelationship struct {
+	File     string
+	Strength string // "强", "中", "弱"
+	Reason   string
+}
+
+// 完整性检查项
+type CompletenessItem struct {
+	Category    string
+	Exists      bool
+	Description string
+}
+
+// 识别是否为小说相关文件
+func isNovelRelatedFile(fileName, content string) bool {
+	fileName = strings.ToLower(fileName)
+	content = strings.ToLower(content)
+	
+	// 文件名关键词
+	nameKeywords := []string{
+		"世界观", "设定", "主角", "角色", "人物", "门派", "门派设定",
+		"大纲", "情节", "剧情", "章节", "故事", "小说",
+		"world", "character", "protagonist", "plot", "outline",
+	}
+	
+	for _, keyword := range nameKeywords {
+		if strings.Contains(fileName, keyword) {
+			return true
+		}
+	}
+	
+	// 内容关键词
+	contentKeywords := []string{
+		"主角", "男主", "女主", "主人公", "protagonista",
+		"世界观", "修真", "武功", "法术", "魔法", "灵气",
+		"门派", "宗门", "学院", "公会",
+		"章节", "第一章", "序章", "楔子",
+		"人物介绍", "角色设定", "背景设定",
+	}
+	
+	matchCount := 0
+	for _, keyword := range contentKeywords {
+		if strings.Contains(content, keyword) {
+			matchCount++
+		}
+	}
+	
+	return matchCount >= 2 // 至少匹配2个关键词
+}
+
+// 文件分类
+func categorizeFiles(files map[string]string) map[string][]string {
+	categories := map[string][]string{
+		"世界观设定": {},
+		"角色设定":   {},
+		"情节大纲":   {},
+		"章节内容":   {},
+		"其他设定":   {},
+	}
+	
+	for fileName, content := range files {
+		name := strings.ToLower(fileName)
+		contentLower := strings.ToLower(content)
+		
+		switch {
+		case strings.Contains(name, "世界观") || strings.Contains(name, "world") ||
+			 strings.Contains(contentLower, "世界观") && strings.Contains(contentLower, "设定"):
+			categories["世界观设定"] = append(categories["世界观设定"], fileName)
+		case strings.Contains(name, "主角") || strings.Contains(name, "角色") || strings.Contains(name, "人物") ||
+			 strings.Contains(name, "character") || strings.Contains(contentLower, "主角") && strings.Contains(contentLower, "设定"):
+			categories["角色设定"] = append(categories["角色设定"], fileName)
+		case strings.Contains(name, "大纲") || strings.Contains(name, "情节") || strings.Contains(name, "剧情") ||
+			 strings.Contains(name, "outline") || strings.Contains(contentLower, "章节") && strings.Contains(contentLower, "大纲"):
+			categories["情节大纲"] = append(categories["情节大纲"], fileName)
+		case strings.Contains(name, "章节") || strings.Contains(name, "chapter") ||
+			 strings.Contains(contentLower, "第") && (strings.Contains(contentLower, "章") || strings.Contains(contentLower, "节")):
+			categories["章节内容"] = append(categories["章节内容"], fileName)
+		default:
+			categories["其他设定"] = append(categories["其他设定"], fileName)
+		}
+	}
+	
+	// 移除空分类
+	for category, fileList := range categories {
+		if len(fileList) == 0 {
+			delete(categories, category)
+		}
+	}
+	
+	return categories
+}
+
+// 查找文件关联关系
+func findFileRelationships(files map[string]string) map[string][]FileRelationship {
+	relationships := make(map[string][]FileRelationship)
+	
+	for fileName, content := range files {
+		var related []FileRelationship
+		
+		for otherFile, otherContent := range files {
+			if fileName == otherFile {
+				continue
+			}
+			
+			strength, reason := calculateRelationshipStrength(fileName, content, otherFile, otherContent)
+			if strength != "" {
+				related = append(related, FileRelationship{
+					File:     otherFile,
+					Strength: strength,
+					Reason:   reason,
+				})
+			}
+		}
+		
+		if len(related) > 0 {
+			relationships[fileName] = related
+		}
+	}
+	
+	return relationships
+}
+
+// 计算文件关联强度
+func calculateRelationshipStrength(file1, content1, file2, content2 string) (string, string) {
+	// 提取关键词
+	keywords1 := extractKeywords(content1)
+	keywords2 := extractKeywords(content2)
+	
+	// 计算共同关键词
+	commonKeywords := 0
+	for keyword := range keywords1 {
+		if keywords2[keyword] {
+			commonKeywords++
+		}
+	}
+	
+	totalKeywords := len(keywords1) + len(keywords2)
+	if totalKeywords == 0 {
+		return "", ""
+	}
+	
+	similarity := float64(commonKeywords*2) / float64(totalKeywords)
+	
+	switch {
+	case similarity >= 0.3:
+		return "强", fmt.Sprintf("共享%d个关键概念", commonKeywords)
+	case similarity >= 0.15:
+		return "中", fmt.Sprintf("共享%d个关键概念", commonKeywords)
+	case similarity >= 0.05:
+		return "弱", fmt.Sprintf("共享%d个关键概念", commonKeywords)
+	default:
+		return "", ""
+	}
+}
+
+// 提取关键词
+func extractKeywords(content string) map[string]bool {
+	keywords := make(map[string]bool)
+	content = strings.ToLower(content)
+	
+	// 小说创作相关关键词
+	importantTerms := []string{
+		"主角", "男主", "女主", "主人公",
+		"门派", "宗门", "学院", "公会",
+		"修真", "武功", "法术", "魔法", "灵气", "内力",
+		"世界观", "背景", "设定",
+		"性格", "外貌", "能力", "技能",
+		"情节", "剧情", "故事线", "冲突",
+	}
+	
+	for _, term := range importantTerms {
+		if strings.Contains(content, term) {
+			keywords[term] = true
+		}
+	}
+	
+	return keywords
+}
+
+// 分析项目完整性
+func analyzeProjectCompleteness(categories map[string][]string) []CompletenessItem {
+	var items []CompletenessItem
+	
+	// 必要文件检查
+	requiredCategories := map[string]string{
+		"世界观设定": "定义故事发生的世界规则和背景",
+		"角色设定":   "主要角色的性格、背景和能力设定",
+		"情节大纲":   "整体故事结构和主要情节安排",
+	}
+	
+	for category, description := range requiredCategories {
+		exists := len(categories[category]) > 0
+		items = append(items, CompletenessItem{
+			Category:    category,
+			Exists:      exists,
+			Description: description,
+		})
+	}
+	
+	return items
+}
+
+// 生成智能建议
+func generateSmartSuggestions(categories map[string][]string, relationships map[string][]FileRelationship) []string {
+	var suggestions []string
+	
+	// 基于缺失文件的建议
+	if len(categories["世界观设定"]) == 0 {
+		suggestions = append(suggestions, "建议创建世界观设定文件，定义故事的基本规则和背景")
+	}
+	
+	if len(categories["角色设定"]) == 0 {
+		suggestions = append(suggestions, "建议创建主角设定文件，详细描述主要角色")
+	}
+	
+	if len(categories["情节大纲"]) == 0 {
+		suggestions = append(suggestions, "建议创建故事大纲，规划整体情节结构")
+	}
+	
+	// 基于关联关系的建议
+	if len(relationships) < len(categories)*len(categories)/4 {
+		suggestions = append(suggestions, "文件间关联度较低，建议在设定间建立更多的逻辑联系")
+	}
+	
+	// 结构优化建议
+	if len(categories["其他设定"]) > len(categories["角色设定"])+len(categories["世界观设定"]) {
+		suggestions = append(suggestions, "建议整理并分类设定文件，让项目结构更清晰")
+	}
+	
+	if len(suggestions) == 0 {
+		suggestions = append(suggestions, "项目结构良好！继续保持文件间的逻辑一致性")
+	}
+	
+	return suggestions
+}
+
+// ConsistencyCheckerTool - 内容一致性检查器
+type ConsistencyCheckerTool struct{}
+
+func (t *ConsistencyCheckerTool) Name() string { return "check_consistency" }
+func (t *ConsistencyCheckerTool) Description() string {
+	return "检查小说设定的一致性，发现角色性格、世界观、情节等方面的矛盾和不合理之处"
+}
+
+func (t *ConsistencyCheckerTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	return "🔍 一致性检查功能正在开发中...\n该功能将检查:\n• 角色性格前后一致性\n• 世界观设定逻辑性\n• 时间线合理性\n• 人物关系合理性", nil
+}
+
+// CreativeStageDetectorTool - 创作阶段智能识别器
+type CreativeStageDetectorTool struct{}
+
+func (t *CreativeStageDetectorTool) Name() string { return "detect_creative_stage" }
+func (t *CreativeStageDetectorTool) Description() string {
+	return "智能识别用户当前处于创作的哪个阶段，并提供针对性的建议和工具推荐"
+}
+
+func (t *CreativeStageDetectorTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	return "🎯 创作阶段检测功能正在开发中...\n该功能将识别:\n• 构思阶段 → 提供灵感和框架\n• 大纲阶段 → 协助结构优化\n• 写作阶段 → 实时创作建议\n• 修改阶段 → 质量提升建议", nil
 }
