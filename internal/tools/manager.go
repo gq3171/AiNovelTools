@@ -2,26 +2,40 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/AiNovelTools/internal/ai"
+	contextmgr "github.com/AiNovelTools/internal/context"
+	"github.com/AiNovelTools/internal/novel"
 )
 
 type Manager struct {
-	tools map[string]Tool
+	tools          map[string]Tool
+	contextManager *contextmgr.ContextManager
+	novelManager   *novel.NovelManager
 }
 
 type Tool interface {
 	Name() string
 	Description() string
 	Execute(ctx context.Context, params map[string]interface{}) (string, error)
+}
+
+// EnhancedTool 提供更详细的工具信息给AI模型
+type EnhancedTool interface {
+	Tool
+	GetParameterSchema() map[string]interface{}
+	GetUsageExamples() []string
+	GetCategory() string
 }
 
 type ToolResult struct {
@@ -31,8 +45,19 @@ type ToolResult struct {
 }
 
 func NewManager() *Manager {
+	contextManager := contextmgr.NewContextManager()
+	// 尝试加载已保存的上下文
+	contextManager.LoadContext()
+	
+	// 初始化小说管理器
+	currentDir, _ := os.Getwd()
+	novelManager := novel.NewNovelManager(currentDir)
+	novelManager.LoadProject() // 尝试加载已有项目
+	
 	m := &Manager{
-		tools: make(map[string]Tool),
+		tools:          make(map[string]Tool),
+		contextManager: contextManager,
+		novelManager:   novelManager,
 	}
 	
 	// 注册内置工具
@@ -50,6 +75,21 @@ func NewManager() *Manager {
 	m.RegisterTool(&SearchTool{})
 	m.RegisterTool(&ReplaceTextTool{})
 	
+	// 环境感知工具
+	m.RegisterTool(&GetCurrentDirectoryTool{})
+	m.RegisterTool(&GetSystemInfoTool{})
+	m.RegisterTool(&GetProjectInfoTool{})
+	m.RegisterTool(&GetWorkingContextTool{})
+	m.RegisterTool(&GetSmartContextTool{contextManager: m.contextManager})
+	
+	// 小说写作工具
+	m.RegisterTool(&InitNovelProjectTool{novelManager: m.novelManager})
+	m.RegisterTool(&GetNovelContextTool{novelManager: m.novelManager})
+	m.RegisterTool(&AddCharacterTool{novelManager: m.novelManager})
+	m.RegisterTool(&AddPlotLineTool{novelManager: m.novelManager})
+	m.RegisterTool(&GetChapterContextTool{novelManager: m.novelManager})
+	m.RegisterTool(&SearchNovelHistoryTool{novelManager: m.novelManager})
+	
 	return m
 }
 
@@ -60,6 +100,96 @@ func (m *Manager) RegisterTool(tool Tool) {
 func (m *Manager) GetTool(name string) (Tool, bool) {
 	tool, exists := m.tools[name]
 	return tool, exists
+}
+
+func (m *Manager) GetAllTools() map[string]Tool {
+	return m.tools
+}
+
+func (m *Manager) GetToolsInfo() string {
+	var result strings.Builder
+	result.WriteString("🛠️ === AI Assistant Tools Documentation === 🛠️\n\n")
+	
+	categories := map[string][]string{
+		"📖 File Operations": {},
+		"📁 Directory Management": {},
+		"🔍 Search & Replace": {},
+		"⚡ System Commands": {},
+		"🤖 Environment Awareness": {},
+		"📚 Novel Writing": {},
+	}
+	
+	// 分类工具
+	for name := range m.tools {
+		category := getToolCategory(name)
+		if tools, exists := categories[category]; exists {
+			categories[category] = append(tools, name)
+		}
+	}
+	
+	// 生成文档
+	for category, toolNames := range categories {
+		if len(toolNames) > 0 {
+			result.WriteString(fmt.Sprintf("%s\n", category))
+			for _, toolName := range toolNames {
+				if tool, exists := m.tools[toolName]; exists {
+					result.WriteString(fmt.Sprintf("  • %s - %s\n", toolName, tool.Description()))
+				}
+			}
+			result.WriteString("\n")
+		}
+	}
+	
+	result.WriteString("💡 Usage Tips:\n")
+	result.WriteString("• Use get_working_context first to understand current environment\n")
+	result.WriteString("• Use get_project_info to analyze project structure\n")
+	result.WriteString("• Use search tool to find specific code or content\n")
+	result.WriteString("• Always use file_info before modifying important files\n")
+	result.WriteString("• Use execute_command for system operations like git, npm, etc.\n")
+	
+	return result.String()
+}
+
+func getToolCategory(toolName string) string {
+	fileOps := []string{"read_file", "write_file", "edit_file", "file_info", "copy_file", "move_file", "rename_file", "delete_file"}
+	dirOps := []string{"list_files", "create_directory"}
+	searchOps := []string{"search", "replace_text"}
+	sysOps := []string{"execute_command"}
+	envOps := []string{"get_current_directory", "get_system_info", "get_project_info", "get_working_context", "get_smart_context"}
+	novelOps := []string{"init_novel_project", "get_novel_context", "add_character", "add_plot_line", "get_chapter_context", "search_novel_history"}
+	
+	for _, op := range fileOps {
+		if op == toolName {
+			return "📖 File Operations"
+		}
+	}
+	for _, op := range dirOps {
+		if op == toolName {
+			return "📁 Directory Management"
+		}
+	}
+	for _, op := range searchOps {
+		if op == toolName {
+			return "🔍 Search & Replace"
+		}
+	}
+	for _, op := range sysOps {
+		if op == toolName {
+			return "⚡ System Commands"
+		}
+	}
+	for _, op := range envOps {
+		if op == toolName {
+			return "🤖 Environment Awareness"
+		}
+	}
+	for _, op := range novelOps {
+		if op == toolName {
+			return "📚 Novel Writing"
+		}
+	}
+	
+	return "🔧 Other Tools"
 }
 
 func (m *Manager) ExecuteTools(ctx context.Context, toolCalls []ai.ToolCall) ([]ToolResult, error) {
@@ -570,4 +700,686 @@ func (t *ReplaceTextTool) Execute(ctx context.Context, params map[string]interfa
 	}
 	
 	return fmt.Sprintf("Replaced %d occurrences in %s", count, filePath), nil
+}
+
+// ======================== 环境感知工具 ========================
+
+// GetCurrentDirectoryTool - 获取当前工作目录
+type GetCurrentDirectoryTool struct{}
+
+func (t *GetCurrentDirectoryTool) Name() string { return "get_current_directory" }
+func (t *GetCurrentDirectoryTool) Description() string { 
+	return "Get the current working directory and basic directory information. This tool helps AI understand the current location in the file system."
+}
+
+func (t *GetCurrentDirectoryTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	
+	// 获取目录信息
+	info, err := os.Stat(currentDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to get directory info: %w", err)
+	}
+	
+	// 列出当前目录的内容（仅第一级）
+	entries, err := os.ReadDir(currentDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read directory: %w", err)
+	}
+	
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Current Working Directory: %s\n", currentDir))
+	result.WriteString(fmt.Sprintf("Directory Name: %s\n", filepath.Base(currentDir)))
+	result.WriteString(fmt.Sprintf("Parent Directory: %s\n", filepath.Dir(currentDir)))
+	result.WriteString(fmt.Sprintf("Modified: %s\n", info.ModTime().Format(time.RFC3339)))
+	result.WriteString(fmt.Sprintf("Total Items: %d\n\n", len(entries)))
+	
+	result.WriteString("Directory Contents:\n")
+	fileCount, dirCount := 0, 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			result.WriteString(fmt.Sprintf("📁 %s/\n", entry.Name()))
+			dirCount++
+		} else {
+			result.WriteString(fmt.Sprintf("📄 %s\n", entry.Name()))
+			fileCount++
+		}
+		if fileCount+dirCount >= 20 { // 限制显示数量
+			result.WriteString("... (更多项目)\n")
+			break
+		}
+	}
+	
+	result.WriteString(fmt.Sprintf("\nSummary: %d directories, %d files\n", dirCount, fileCount))
+	
+	return result.String(), nil
+}
+
+// GetSystemInfoTool - 获取系统信息
+type GetSystemInfoTool struct{}
+
+func (t *GetSystemInfoTool) Name() string { return "get_system_info" }
+func (t *GetSystemInfoTool) Description() string { 
+	return "Get comprehensive system information including OS, architecture, Go version, and environment variables. Helps AI understand the runtime environment."
+}
+
+func (t *GetSystemInfoTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	var result strings.Builder
+	
+	// 基本系统信息
+	result.WriteString("=== System Information ===\n")
+	result.WriteString(fmt.Sprintf("Operating System: %s\n", runtime.GOOS))
+	result.WriteString(fmt.Sprintf("Architecture: %s\n", runtime.GOARCH))
+	result.WriteString(fmt.Sprintf("Go Version: %s\n", runtime.Version()))
+	result.WriteString(fmt.Sprintf("CPU Cores: %d\n", runtime.NumCPU()))
+	
+	// 获取主机名
+	if hostname, err := os.Hostname(); err == nil {
+		result.WriteString(fmt.Sprintf("Hostname: %s\n", hostname))
+	}
+	
+	// 当前用户
+	if user := os.Getenv("USER"); user == "" {
+		user = os.Getenv("USERNAME") // Windows
+	} else {
+		result.WriteString(fmt.Sprintf("Current User: %s\n", user))
+	}
+	
+	// 环境变量（重要的）
+	result.WriteString("\n=== Environment Variables ===\n")
+	importantEnvs := []string{"PATH", "HOME", "GOPATH", "GOROOT", "GOPROXY", "PWD"}
+	for _, env := range importantEnvs {
+		if value := os.Getenv(env); value != "" {
+			// 对于PATH，只显示前几个路径
+			if env == "PATH" {
+				paths := strings.Split(value, string(os.PathListSeparator))
+				if len(paths) > 5 {
+					result.WriteString(fmt.Sprintf("%s: %s ... (and %d more)\n", env, strings.Join(paths[:5], string(os.PathListSeparator)), len(paths)-5))
+				} else {
+					result.WriteString(fmt.Sprintf("%s: %s\n", env, value))
+				}
+			} else {
+				result.WriteString(fmt.Sprintf("%s: %s\n", env, value))
+			}
+		}
+	}
+	
+	// 磁盘空间信息（当前目录）
+	currentDir, _ := os.Getwd()
+	result.WriteString(fmt.Sprintf("\n=== Current Directory Context ===\n"))
+	result.WriteString(fmt.Sprintf("Working Directory: %s\n", currentDir))
+	
+	return result.String(), nil
+}
+
+// GetProjectInfoTool - 获取项目信息
+type GetProjectInfoTool struct{}
+
+func (t *GetProjectInfoTool) Name() string { return "get_project_info" }
+func (t *GetProjectInfoTool) Description() string { 
+	return "Analyze and identify project type, structure, dependencies, and provide intelligent insights about the current project."
+}
+
+func (t *GetProjectInfoTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	projectPath, ok := params["path"].(string)
+	if !ok {
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current directory: %w", err)
+		}
+		projectPath = currentDir
+	}
+	
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("=== Project Analysis: %s ===\n", filepath.Base(projectPath)))
+	result.WriteString(fmt.Sprintf("Project Path: %s\n\n", projectPath))
+	
+	// 检测项目类型
+	projectType := detectProjectType(projectPath)
+	result.WriteString(fmt.Sprintf("🎯 Project Type: %s\n\n", projectType))
+	
+	// 分析项目结构
+	structure := analyzeProjectStructure(projectPath)
+	result.WriteString("📁 Project Structure:\n")
+	result.WriteString(structure)
+	result.WriteString("\n")
+	
+	// 检测依赖和配置文件
+	dependencies := analyzeDependencies(projectPath)
+	if dependencies != "" {
+		result.WriteString("📦 Dependencies & Configuration:\n")
+		result.WriteString(dependencies)
+		result.WriteString("\n")
+	}
+	
+	// 提供智能建议
+	suggestions := generateProjectSuggestions(projectPath, projectType)
+	if suggestions != "" {
+		result.WriteString("💡 AI Suggestions:\n")
+		result.WriteString(suggestions)
+	}
+	
+	return result.String(), nil
+}
+
+// GetWorkingContextTool - 获取完整工作上下文
+type GetWorkingContextTool struct{}
+
+func (t *GetWorkingContextTool) Name() string { return "get_working_context" }
+func (t *GetWorkingContextTool) Description() string { 
+	return "Get comprehensive working context including current directory, system info, project details, and recent activity. Provides complete environment awareness for AI."
+}
+
+func (t *GetWorkingContextTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	var result strings.Builder
+	result.WriteString("🤖 === AI Assistant Working Context === 🤖\n\n")
+	
+	// 获取当前目录信息
+	currentDirTool := &GetCurrentDirectoryTool{}
+	dirInfo, err := currentDirTool.Execute(ctx, nil)
+	if err == nil {
+		result.WriteString("📍 " + dirInfo + "\n")
+	}
+	
+	// 获取项目信息
+	projectTool := &GetProjectInfoTool{}
+	projectInfo, err := projectTool.Execute(ctx, nil)
+	if err == nil {
+		result.WriteString(projectInfo + "\n")
+	}
+	
+	// 系统信息摘要
+	result.WriteString("💻 System Summary:\n")
+	result.WriteString(fmt.Sprintf("OS: %s/%s | Go: %s | CPU: %d cores\n", runtime.GOOS, runtime.GOARCH, runtime.Version(), runtime.NumCPU()))
+	
+	if hostname, err := os.Hostname(); err == nil {
+		result.WriteString(fmt.Sprintf("Host: %s | ", hostname))
+	}
+	
+	currentDir, _ := os.Getwd()
+	result.WriteString(fmt.Sprintf("PWD: %s\n\n", currentDir))
+	
+	// AI工作建议
+	result.WriteString("🎯 AI Assistant Ready!\n")
+	result.WriteString("Available capabilities:\n")
+	result.WriteString("• File operations (read, write, edit, search, replace)\n")
+	result.WriteString("• Directory management (create, delete, move, copy)\n")
+	result.WriteString("• System commands execution\n")
+	result.WriteString("• Project analysis and structure understanding\n")
+	result.WriteString("• Context-aware assistance based on project type\n")
+	
+	return result.String(), nil
+}
+
+// ======================== 辅助函数 ========================
+
+func detectProjectType(projectPath string) string {
+	// 检查常见的项目标识文件
+	projectIndicators := map[string]string{
+		"go.mod":          "Go Module Project",
+		"go.sum":          "Go Project",
+		"package.json":    "Node.js/JavaScript Project",
+		"pom.xml":         "Java Maven Project",
+		"build.gradle":    "Java Gradle Project",
+		"Cargo.toml":      "Rust Project",
+		"pyproject.toml":  "Python Project",
+		"requirements.txt": "Python Project",
+		"composer.json":   "PHP Project",
+		"Gemfile":         "Ruby Project",
+		"CMakeLists.txt":  "C/C++ CMake Project",
+		"Makefile":        "C/C++ Make Project",
+		"Dockerfile":      "Docker Project",
+		"docker-compose.yml": "Docker Compose Project",
+	}
+	
+	detectedTypes := []string{}
+	
+	entries, err := os.ReadDir(projectPath)
+	if err != nil {
+		return "Unknown Project Type"
+	}
+	
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			if projectType, exists := projectIndicators[entry.Name()]; exists {
+				detectedTypes = append(detectedTypes, projectType)
+			}
+		}
+	}
+	
+	if len(detectedTypes) == 0 {
+		return "Generic Directory"
+	}
+	
+	return strings.Join(detectedTypes, " + ")
+}
+
+func analyzeProjectStructure(projectPath string) string {
+	var result strings.Builder
+	
+	entries, err := os.ReadDir(projectPath)
+	if err != nil {
+		return "Unable to analyze project structure"
+	}
+	
+	directories := []string{}
+	files := []string{}
+	
+	for _, entry := range entries {
+		if entry.IsDir() {
+			directories = append(directories, entry.Name())
+		} else {
+			files = append(files, entry.Name())
+		}
+	}
+	
+	// 分析目录结构
+	for _, dir := range directories {
+		dirType := classifyDirectory(dir)
+		result.WriteString(fmt.Sprintf("📁 %s/ - %s\n", dir, dirType))
+	}
+	
+	// 分析重要文件
+	for _, file := range files {
+		fileType := classifyFile(file)
+		if fileType != "" {
+			result.WriteString(fmt.Sprintf("📄 %s - %s\n", file, fileType))
+		}
+	}
+	
+	return result.String()
+}
+
+func classifyDirectory(dirName string) string {
+	dirTypes := map[string]string{
+		"src":        "Source Code Directory",
+		"internal":   "Internal Package Directory",
+		"pkg":        "Package Directory", 
+		"cmd":        "Command Directory",
+		"api":        "API Definition Directory",
+		"web":        "Web Assets Directory",
+		"static":     "Static Files Directory",
+		"templates":  "Template Directory",
+		"config":     "Configuration Directory",
+		"docs":       "Documentation Directory",
+		"test":       "Test Directory",
+		"tests":      "Test Directory",
+		"build":      "Build Output Directory",
+		"dist":       "Distribution Directory",
+		"vendor":     "Vendor Dependencies Directory",
+		"node_modules": "Node.js Dependencies Directory",
+		"target":     "Build Target Directory",
+		"bin":        "Binary Directory",
+		"scripts":    "Scripts Directory",
+		"tools":      "Tools Directory",
+		"examples":   "Examples Directory",
+		"frontend":   "Frontend Code Directory",
+		"backend":    "Backend Code Directory",
+	}
+	
+	if description, exists := dirTypes[strings.ToLower(dirName)]; exists {
+		return description
+	}
+	
+	return "Project Directory"
+}
+
+func classifyFile(fileName string) string {
+	fileTypes := map[string]string{
+		"go.mod":          "Go Module Definition",
+		"go.sum":          "Go Module Checksums",
+		"package.json":    "Node.js Package Definition",
+		"package-lock.json": "Node.js Lock File",
+		"pom.xml":         "Maven Build Configuration",
+		"build.gradle":    "Gradle Build Configuration",
+		"Dockerfile":      "Docker Container Definition",
+		"docker-compose.yml": "Docker Compose Configuration",
+		"README.md":       "Project Documentation",
+		"LICENSE":         "License File",
+		"Makefile":        "Build Automation File",
+		"main.go":         "Go Main Entry Point",
+		"main.py":         "Python Main Entry Point",
+		"index.js":        "JavaScript Entry Point",
+		"index.html":      "HTML Entry Point",
+		".gitignore":      "Git Ignore Rules",
+		".env":            "Environment Variables",
+		"config.yaml":     "YAML Configuration",
+		"config.json":     "JSON Configuration",
+		"tsconfig.json":   "TypeScript Configuration",
+	}
+	
+	if description, exists := fileTypes[fileName]; exists {
+		return description
+	}
+	
+	// 检查文件扩展名
+	ext := strings.ToLower(filepath.Ext(fileName))
+	extTypes := map[string]string{
+		".go":   "Go Source File",
+		".py":   "Python Source File",
+		".js":   "JavaScript File",
+		".ts":   "TypeScript File",
+		".java": "Java Source File",
+		".cpp":  "C++ Source File",
+		".c":    "C Source File",
+		".h":    "Header File",
+		".md":   "Markdown Documentation",
+		".yml":  "YAML Configuration",
+		".yaml": "YAML Configuration",
+		".json": "JSON Data File",
+		".xml":  "XML File",
+		".html": "HTML File",
+		".css":  "CSS Stylesheet",
+		".sql":  "SQL Script",
+		".sh":   "Shell Script",
+		".bat":  "Batch Script",
+	}
+	
+	if description, exists := extTypes[ext]; exists {
+		return description
+	}
+	
+	return "" // 不显示普通文件
+}
+
+func analyzeDependencies(projectPath string) string {
+	var result strings.Builder
+	
+	// Go项目依赖分析
+	if goModPath := filepath.Join(projectPath, "go.mod"); fileExists(goModPath) {
+		content, err := os.ReadFile(goModPath)
+		if err == nil {
+			lines := strings.Split(string(content), "\n")
+			result.WriteString("🔧 Go Dependencies (go.mod):\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "module") {
+					result.WriteString(fmt.Sprintf("  Module: %s\n", strings.TrimPrefix(line, "module ")))
+				} else if strings.HasPrefix(line, "go ") {
+					result.WriteString(fmt.Sprintf("  Go Version: %s\n", strings.TrimPrefix(line, "go ")))
+				} else if strings.Contains(line, "require") && !strings.Contains(line, "//") {
+					result.WriteString(fmt.Sprintf("  %s\n", line))
+				}
+			}
+			result.WriteString("\n")
+		}
+	}
+	
+	// Node.js项目依赖分析
+	if packageJsonPath := filepath.Join(projectPath, "package.json"); fileExists(packageJsonPath) {
+		content, err := os.ReadFile(packageJsonPath)
+		if err == nil {
+			result.WriteString("📦 Node.js Dependencies (package.json):\n")
+			var packageData map[string]interface{}
+			if json.Unmarshal(content, &packageData) == nil {
+				if name, ok := packageData["name"].(string); ok {
+					result.WriteString(fmt.Sprintf("  Package: %s\n", name))
+				}
+				if version, ok := packageData["version"].(string); ok {
+					result.WriteString(fmt.Sprintf("  Version: %s\n", version))
+				}
+				if scripts, ok := packageData["scripts"].(map[string]interface{}); ok {
+					result.WriteString("  Available Scripts:\n")
+					for script := range scripts {
+						result.WriteString(fmt.Sprintf("    - npm run %s\n", script))
+					}
+				}
+			}
+			result.WriteString("\n")
+		}
+	}
+	
+	return result.String()
+}
+
+func generateProjectSuggestions(projectPath, projectType string) string {
+	var suggestions strings.Builder
+	
+	// 基于项目类型的建议
+	if strings.Contains(projectType, "Go") {
+		suggestions.WriteString("• Use 'go run main.go' to run the application\n")
+		suggestions.WriteString("• Use 'go build' to compile the project\n")
+		suggestions.WriteString("• Use 'go mod tidy' to clean up dependencies\n")
+		suggestions.WriteString("• Check 'internal/' directory for internal packages\n")
+	}
+	
+	if strings.Contains(projectType, "Node.js") || strings.Contains(projectType, "JavaScript") {
+		suggestions.WriteString("• Use 'npm install' to install dependencies\n")
+		suggestions.WriteString("• Use 'npm start' or 'npm run dev' to start development\n")
+		suggestions.WriteString("• Check package.json for available scripts\n")
+	}
+	
+	if strings.Contains(projectType, "Java") {
+		suggestions.WriteString("• Use 'mvn compile' or 'gradle build' to build\n")
+		suggestions.WriteString("• Check src/main/java for source code\n")
+		suggestions.WriteString("• Look for application.properties for configuration\n")
+	}
+	
+	// 通用建议
+	if fileExists(filepath.Join(projectPath, "README.md")) {
+		suggestions.WriteString("• Read README.md for project documentation\n")
+	}
+	
+	if fileExists(filepath.Join(projectPath, "Makefile")) {
+		suggestions.WriteString("• Use 'make' commands for build automation\n")
+	}
+	
+	if fileExists(filepath.Join(projectPath, "docker-compose.yml")) {
+		suggestions.WriteString("• Use 'docker-compose up' to start services\n")
+	}
+	
+	return suggestions.String()
+}
+
+func fileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return err == nil
+}
+
+// GetSmartContextTool - 智能上下文感知工具
+type GetSmartContextTool struct {
+	contextManager *contextmgr.ContextManager
+}
+
+func (t *GetSmartContextTool) Name() string { return "get_smart_context" }
+func (t *GetSmartContextTool) Description() string { 
+	return "Get intelligent context including project history, user preferences, recent activities, and personalized suggestions. Provides the most comprehensive environment awareness."
+}
+
+func (t *GetSmartContextTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	// 更新当前项目上下文
+	currentDir, _ := os.Getwd()
+	t.contextManager.UpdateCurrentProject(currentDir)
+	
+	var result strings.Builder
+	result.WriteString("🧠 === Smart Context Analysis === 🧠\n\n")
+	
+	// 获取上下文摘要
+	contextSummary := t.contextManager.GetContextSummary()
+	result.WriteString(contextSummary)
+	
+	// 获取智能建议
+	suggestions := t.contextManager.GetWorkingSuggestions()
+	if len(suggestions) > 0 {
+		result.WriteString("💡 Smart Suggestions:\n")
+		for _, suggestion := range suggestions {
+			result.WriteString(fmt.Sprintf("  %s\n", suggestion))
+		}
+		result.WriteString("\n")
+	}
+	
+	// 项目分析（结合基础工具）
+	projectTool := &GetProjectInfoTool{}
+	projectInfo, err := projectTool.Execute(ctx, nil)
+	if err == nil {
+		result.WriteString("🔍 Current Project Analysis:\n")
+		// 只显示关键信息，避免重复
+		lines := strings.Split(projectInfo, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "Project Type:") || 
+			   strings.Contains(line, "AI Suggestions:") ||
+			   strings.Contains(line, "Dependencies & Configuration:") {
+				result.WriteString(line + "\n")
+			}
+		}
+		result.WriteString("\n")
+	}
+	
+	// 环境状态
+	result.WriteString("🌐 Environment Status:\n")
+	result.WriteString(fmt.Sprintf("OS: %s/%s | Go: %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version()))
+	result.WriteString(fmt.Sprintf("Working Directory: %s\n", currentDir))
+	result.WriteString(fmt.Sprintf("Context Last Updated: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	
+	// AI助手能力提醒
+	result.WriteString("🤖 AI Assistant Ready!\n")
+	result.WriteString("I have full context awareness and can help you with:\n")
+	result.WriteString("• Intelligent file operations based on project type\n")
+	result.WriteString("• Context-aware code analysis and suggestions\n")
+	result.WriteString("• Project-specific development workflow automation\n")
+	result.WriteString("• Smart content search and modification\n")
+	result.WriteString("• Personalized assistance based on your work patterns\n")
+	
+	return result.String(), nil
+}
+
+// ======================== 小说写作工具 ========================
+
+// InitNovelProjectTool - 初始化小说项目
+type InitNovelProjectTool struct {
+	novelManager *novel.NovelManager
+}
+
+func (t *InitNovelProjectTool) Name() string { return "init_novel_project" }
+func (t *InitNovelProjectTool) Description() string { 
+	return "Initialize a new novel writing project with title, author, genre, and basic settings. Creates the foundation for consistent novel writing with character and plot tracking."
+}
+
+func (t *InitNovelProjectTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	title, ok := params["title"].(string)
+	if !ok {
+		return "", fmt.Errorf("title parameter is required")
+	}
+	
+	author, ok := params["author"].(string)
+	if !ok {
+		author = "Unknown Author"
+	}
+	
+	genre, ok := params["genre"].(string)
+	if !ok {
+		genre = "Fiction"
+	}
+	
+	if err := t.novelManager.InitializeProject(title, author, genre); err != nil {
+		return "", fmt.Errorf("failed to initialize novel project: %w", err)
+	}
+	
+	return fmt.Sprintf("✅ 小说项目初始化成功！\n标题: %s\n作者: %s\n类型: %s\n\n现在可以开始添加角色、情节线和章节内容了。", title, author, genre), nil
+}
+
+// GetNovelContextTool - 获取小说上下文
+type GetNovelContextTool struct {
+	novelManager *novel.NovelManager
+}
+
+func (t *GetNovelContextTool) Name() string { return "get_novel_context" }
+func (t *GetNovelContextTool) Description() string { 
+	return "Get comprehensive novel writing context including characters, plot lines, world settings, and writing progress. Essential for maintaining consistency across chapters."
+}
+
+func (t *GetNovelContextTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	// 这里需要实现获取小说完整上下文的逻辑
+	// 由于novel包中的方法是私有的，我们需要在novel包中添加公共方法
+	return "📚 小说项目上下文获取功能正在开发中...\n请先使用 init_novel_project 初始化项目。", nil
+}
+
+// AddCharacterTool - 添加角色
+type AddCharacterTool struct {
+	novelManager *novel.NovelManager
+}
+
+func (t *AddCharacterTool) Name() string { return "add_character" }
+func (t *AddCharacterTool) Description() string { 
+	return "Add a new character to the novel with detailed information including personality, background, relationships. Helps maintain character consistency throughout the story."
+}
+
+func (t *AddCharacterTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	name, ok := params["name"].(string)
+	if !ok {
+		return "", fmt.Errorf("character name is required")
+	}
+	
+	background, _ := params["background"].(string)
+	personality, _ := params["personality"].(string)
+	
+	return fmt.Sprintf("🎭 角色添加功能正在开发中...\n将添加角色: %s\n背景: %s\n性格: %s", name, background, personality), nil
+}
+
+// AddPlotLineTool - 添加情节线
+type AddPlotLineTool struct {
+	novelManager *novel.NovelManager
+}
+
+func (t *AddPlotLineTool) Name() string { return "add_plot_line" }
+func (t *AddPlotLineTool) Description() string { 
+	return "Add a new plot line to track story progression, conflicts, and resolutions. Essential for maintaining narrative coherence and managing multiple story threads."
+}
+
+func (t *AddPlotLineTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	name, ok := params["name"].(string)
+	if !ok {
+		return "", fmt.Errorf("plot line name is required")
+	}
+	
+	plotType, _ := params["type"].(string)
+	description, _ := params["description"].(string)
+	
+	return fmt.Sprintf("📖 情节线添加功能正在开发中...\n将添加情节线: %s\n类型: %s\n描述: %s", name, plotType, description), nil
+}
+
+// GetChapterContextTool - 获取章节上下文
+type GetChapterContextTool struct {
+	novelManager *novel.NovelManager
+}
+
+func (t *GetChapterContextTool) Name() string { return "get_chapter_context" }
+func (t *GetChapterContextTool) Description() string { 
+	return "Get specific chapter context including relevant characters, active plot lines, and recent discussions. Critical for maintaining chapter-to-chapter continuity."
+}
+
+func (t *GetChapterContextTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	chapterNum, ok := params["chapter"].(float64)
+	if !ok {
+		return "", fmt.Errorf("chapter number is required")
+	}
+	
+	return fmt.Sprintf("📄 第%d章上下文获取功能正在开发中...", int(chapterNum)), nil
+}
+
+// SearchNovelHistoryTool - 搜索小说历史
+type SearchNovelHistoryTool struct {
+	novelManager *novel.NovelManager
+}
+
+func (t *SearchNovelHistoryTool) Name() string { return "search_novel_history" }
+func (t *SearchNovelHistoryTool) Description() string { 
+	return "Search through novel writing history to find previous discussions about characters, plots, or specific content. Crucial for maintaining story consistency and avoiding contradictions."
+}
+
+func (t *SearchNovelHistoryTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	query, ok := params["query"].(string)
+	if !ok {
+		return "", fmt.Errorf("search query is required")
+	}
+	
+	maxResults, _ := params["max_results"].(float64)
+	if maxResults == 0 {
+		maxResults = 10
+	}
+	
+	return fmt.Sprintf("🔍 搜索小说历史功能正在开发中...\n查询: %s\n最大结果数: %d", query, int(maxResults)), nil
 }
