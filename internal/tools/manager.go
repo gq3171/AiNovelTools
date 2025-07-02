@@ -348,9 +348,9 @@ func (t *SearchTool) Name() string { return "search" }
 func (t *SearchTool) Description() string { return "Search for text in files" }
 
 func (t *SearchTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
-	pattern, ok := params["pattern"].(string)
+	query, ok := params["query"].(string)
 	if !ok {
-		return "", fmt.Errorf("pattern parameter is required")
+		return "", fmt.Errorf("query parameter is required")
 	}
 	
 	path, ok := params["path"].(string)
@@ -358,14 +358,56 @@ func (t *SearchTool) Execute(ctx context.Context, params map[string]interface{})
 		path = "."
 	}
 	
+	filePattern, _ := params["file_pattern"].(string)
+	useRegex, _ := params["use_regex"].(bool)
+	caseSensitive, _ := params["case_sensitive"].(bool)
+	showLineNumbers, _ := params["show_line_numbers"].(bool)
+	maxResults, _ := params["max_results"].(float64)
+	
+	if maxResults == 0 {
+		maxResults = 50 // 默认最多显示50个结果
+	}
+	
 	var result strings.Builder
-	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+	var foundCount int
+	
+	// 编译正则表达式（如果使用正则模式）
+	var regexPattern *regexp.Regexp
+	if useRegex {
+		var err error
+		flags := ""
+		if !caseSensitive {
+			flags = "(?i)"
+		}
+		regexPattern, err = regexp.Compile(flags + query)
 		if err != nil {
+			return "", fmt.Errorf("invalid regex pattern: %w", err)
+		}
+	}
+	
+	result.WriteString(fmt.Sprintf("🔍 搜索结果 - 查询: \"%s\"\n", query))
+	if useRegex {
+		result.WriteString("📝 模式: 正则表达式\n")
+	} else {
+		result.WriteString("📝 模式: 文本匹配\n")
+	}
+	result.WriteString(fmt.Sprintf("📁 路径: %s\n\n", path))
+	
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil || foundCount >= int(maxResults) {
 			return nil
 		}
 		
 		if info.IsDir() {
 			return nil
+		}
+		
+		// 检查文件模式匹配
+		if filePattern != "" {
+			matched, _ := filepath.Match(filePattern, filepath.Base(filePath))
+			if !matched {
+				return nil
+			}
 		}
 		
 		// 只搜索文本文件
@@ -378,8 +420,56 @@ func (t *SearchTool) Execute(ctx context.Context, params map[string]interface{})
 			return nil
 		}
 		
-		if strings.Contains(string(content), pattern) {
-			result.WriteString(fmt.Sprintf("Found in: %s\n", filePath))
+		lines := strings.Split(string(content), "\n")
+		fileHasMatch := false
+		var matchLines []string
+		
+		for lineNum, line := range lines {
+			var matched bool
+			
+			if useRegex {
+				if regexPattern.MatchString(line) {
+					matched = true
+				}
+			} else {
+				// 文本搜索
+				searchLine := line
+				searchQuery := query
+				if !caseSensitive {
+					searchLine = strings.ToLower(line)
+					searchQuery = strings.ToLower(query)
+				}
+				
+				if strings.Contains(searchLine, searchQuery) {
+					matched = true
+				}
+			}
+			
+			if matched {
+				if !fileHasMatch {
+					fileHasMatch = true
+					foundCount++
+					result.WriteString(fmt.Sprintf("📄 %s\n", filePath))
+				}
+				
+				if showLineNumbers {
+					matchLines = append(matchLines, fmt.Sprintf("  第%d行: %s", lineNum+1, strings.TrimSpace(line)))
+				} else {
+					matchLines = append(matchLines, fmt.Sprintf("  %s", strings.TrimSpace(line)))
+				}
+				
+				// 限制每个文件显示的匹配行数
+				if len(matchLines) >= 5 {
+					break
+				}
+			}
+		}
+		
+		if fileHasMatch {
+			for _, line := range matchLines {
+				result.WriteString(line + "\n")
+			}
+			result.WriteString("\n")
 		}
 		
 		return nil
@@ -387,6 +477,15 @@ func (t *SearchTool) Execute(ctx context.Context, params map[string]interface{})
 	
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
+	}
+	
+	if foundCount == 0 {
+		result.WriteString("❌ 未找到匹配的内容\n")
+	} else {
+		result.WriteString(fmt.Sprintf("✅ 共找到 %d 个文件包含匹配内容", foundCount))
+		if foundCount >= int(maxResults) {
+			result.WriteString(fmt.Sprintf("（已限制显示前%d个结果）", int(maxResults)))
+		}
 	}
 	
 	return result.String(), nil
@@ -1460,12 +1559,37 @@ func getToolParameters(toolName string) map[string]interface{} {
 		return map[string]interface{}{
 			"query": map[string]interface{}{
 				"type":        "string",
-				"description": "要搜索的文本内容",
+				"description": "要搜索的文本内容或正则表达式",
 				"required":    true,
+			},
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "搜索路径（可选，默认当前目录）",
+				"required":    false,
 			},
 			"file_pattern": map[string]interface{}{
 				"type":        "string", 
 				"description": "文件匹配模式（可选，如*.txt）",
+				"required":    false,
+			},
+			"use_regex": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否使用正则表达式搜索",
+				"required":    false,
+			},
+			"case_sensitive": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否区分大小写",
+				"required":    false,
+			},
+			"show_line_numbers": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否显示行号",
+				"required":    false,
+			},
+			"max_results": map[string]interface{}{
+				"type":        "integer",
+				"description": "最大结果数量（默认50）",
 				"required":    false,
 			},
 		}

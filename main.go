@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/AiNovelTools/internal/ai"
 	"github.com/AiNovelTools/internal/config"
@@ -73,7 +74,7 @@ func main() {
 		inputManager.ShowLoading("正在处理请求")
 		
 		// 处理用户输入
-		response, err := processInput(ctx, aiClient, toolManager, sessionManager, line)
+		response, err := processInput(ctx, aiClient, toolManager, sessionManager, inputManager, line)
 		
 		// 隐藏加载动画
 		inputManager.HideLoading()
@@ -636,12 +637,12 @@ func editConfig(inputManager *input.Manager) {
 	}
 }
 
-func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.Manager, sessionManager *session.Manager, input string) (string, error) {
+func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.Manager, sessionManager *session.Manager, inputManager *input.Manager, userInput string) (string, error) {
 	// 获取当前会话
 	currentSession := sessionManager.GetCurrentSession()
 	
 	// 添加用户消息到会话历史
-	currentSession.AddMessage("user", input)
+	currentSession.AddMessage("user", userInput)
 	
 	// 获取工具定义
 	toolDefinitions := toolManager.GetToolDefinitions()
@@ -657,22 +658,47 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 	
 	// 执行工具调用
 	if len(toolCalls) > 0 {
+		inputManager.PrintInfo(fmt.Sprintf("🔧 正在执行 %d 个工具调用...", len(toolCalls)))
+		
 		toolResults, err := toolManager.ExecuteTools(ctx, toolCalls)
 		if err != nil {
 			return "", fmt.Errorf("tool execution failed: %w", err)
 		}
 		
-		// 将工具结果添加到会话并重新调用AI
+		// 统计执行结果
+		successCount := 0
+		errorCount := 0
 		for _, result := range toolResults {
+			if result.Error != nil {
+				errorCount++
+				inputManager.PrintWarning(fmt.Sprintf("工具 %s 执行失败: %v", result.ToolName, result.Error))
+			} else {
+				successCount++
+			}
 			currentSession.AddToolResult(result)
 		}
+		
+		inputManager.PrintSuccess(fmt.Sprintf("✅ 工具执行完成: %d 成功, %d 失败", successCount, errorCount))
 		
 		// 更新messages以包含工具结果
 		messages = addSystemMessage(currentSession.GetMessages())
 		
-		response, _, err = aiClient.Chat(ctx, messages, toolDefinitions)
+		// 重试机制：如果第一次调用失败，最多重试2次
+		maxRetries := 2
+		for retry := 0; retry <= maxRetries; retry++ {
+			response, _, err = aiClient.Chat(ctx, messages, toolDefinitions)
+			if err == nil {
+				break
+			}
+			
+			if retry < maxRetries {
+				inputManager.PrintWarning(fmt.Sprintf("AI调用失败，正在重试 (%d/%d)...", retry+1, maxRetries))
+				time.Sleep(time.Second * time.Duration(retry+1)) // 递增延迟
+			}
+		}
+		
 		if err != nil {
-			return "", fmt.Errorf("AI follow-up request failed: %w", err)
+			return "", fmt.Errorf("AI follow-up request failed after %d retries: %w", maxRetries, err)
 		}
 	}
 	

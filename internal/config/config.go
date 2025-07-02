@@ -11,22 +11,46 @@ import (
 )
 
 type Config struct {
-	AI       ai.Config `yaml:"ai"`
-	UI       UIConfig  `yaml:"ui"`
-	Features Features  `yaml:"features"`
+	AI       ai.Config     `yaml:"ai"`
+	UI       UIConfig      `yaml:"ui"`
+	Features Features      `yaml:"features"`
+	Writing  WritingConfig `yaml:"writing"`
 }
 
 type UIConfig struct {
-	Theme       string `yaml:"theme"`
-	ShowTokens  bool   `yaml:"show_tokens"`
-	AutoSave    bool   `yaml:"auto_save"`
-	MaxHistory  int    `yaml:"max_history"`
+	Theme           string `yaml:"theme"`
+	ShowTokens      bool   `yaml:"show_tokens"`
+	AutoSave        bool   `yaml:"auto_save"`
+	MaxHistory      int    `yaml:"max_history"`
+	Language        string `yaml:"language"`          // 界面语言
+	DateFormat      string `yaml:"date_format"`       // 日期格式
+	ShowWelcome     bool   `yaml:"show_welcome"`      // 显示欢迎信息
+	CompactMode     bool   `yaml:"compact_mode"`      // 紧凑模式
+	ShowProgress    bool   `yaml:"show_progress"`     // 显示进度条
+	AnimationSpeed  string `yaml:"animation_speed"`   // 动画速度
 }
 
 type Features struct {
 	EnableFileWatch bool     `yaml:"enable_file_watch"`
 	AllowedCommands []string `yaml:"allowed_commands"`
 	SafeMode        bool     `yaml:"safe_mode"`
+	AutoCompletion  bool     `yaml:"auto_completion"`   // 自动补全
+	SmartSuggestions bool    `yaml:"smart_suggestions"` // 智能建议
+	FileIndexing    bool     `yaml:"file_indexing"`     // 文件索引
+	BackupFiles     bool     `yaml:"backup_files"`      // 文件备份
+	MaxFileSize     int      `yaml:"max_file_size"`     // 最大文件大小(MB)
+}
+
+type WritingConfig struct {
+	AutoSaveInterval    int      `yaml:"auto_save_interval"`     // 自动保存间隔(秒)
+	DefaultGenre        string   `yaml:"default_genre"`          // 默认类型
+	PreferredAIModel    string   `yaml:"preferred_ai_model"`     // 首选AI模型
+	WritingStyle        string   `yaml:"writing_style"`          // 写作风格
+	TargetWordsPerDay   int      `yaml:"target_words_per_day"`   // 每日目标字数
+	EnableSpellCheck    bool     `yaml:"enable_spell_check"`     // 拼写检查
+	ShowWordCount       bool     `yaml:"show_word_count"`        // 显示字数统计
+	RememberContext     bool     `yaml:"remember_context"`       // 记住上下文
+	MaxContextLength    int      `yaml:"max_context_length"`     // 最大上下文长度
 }
 
 func Load() (*Config, error) {
