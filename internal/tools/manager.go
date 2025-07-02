@@ -1195,7 +1195,7 @@ func (t *GetSmartContextTool) Execute(ctx context.Context, params map[string]int
 	t.contextManager.UpdateCurrentProject(currentDir)
 	
 	var result strings.Builder
-	result.WriteString("🧠 === Smart Context Analysis === 🧠\n\n")
+	result.WriteString("🧠 === 智能环境分析 === 🧠\n\n")
 	
 	// 获取上下文摘要
 	contextSummary := t.contextManager.GetContextSummary()
@@ -1204,7 +1204,7 @@ func (t *GetSmartContextTool) Execute(ctx context.Context, params map[string]int
 	// 获取智能建议
 	suggestions := t.contextManager.GetWorkingSuggestions()
 	if len(suggestions) > 0 {
-		result.WriteString("💡 Smart Suggestions:\n")
+		result.WriteString("💡 智能建议:\n")
 		for _, suggestion := range suggestions {
 			result.WriteString(fmt.Sprintf("  %s\n", suggestion))
 		}
@@ -1215,13 +1215,23 @@ func (t *GetSmartContextTool) Execute(ctx context.Context, params map[string]int
 	projectTool := &GetProjectInfoTool{}
 	projectInfo, err := projectTool.Execute(ctx, nil)
 	if err == nil {
-		result.WriteString("🔍 Current Project Analysis:\n")
+		result.WriteString("🔍 当前项目分析:\n")
 		// 只显示关键信息，避免重复
 		lines := strings.Split(projectInfo, "\n")
 		for _, line := range lines {
 			if strings.Contains(line, "Project Type:") || 
 			   strings.Contains(line, "AI Suggestions:") ||
 			   strings.Contains(line, "Dependencies & Configuration:") {
+				// 翻译关键术语
+				if strings.Contains(line, "Project Type:") {
+					line = strings.Replace(line, "Project Type:", "🎯 项目类型:", 1)
+				}
+				if strings.Contains(line, "AI Suggestions:") {
+					line = strings.Replace(line, "AI Suggestions:", "💡 AI建议:", 1)
+				}
+				if strings.Contains(line, "Dependencies & Configuration:") {
+					line = strings.Replace(line, "Dependencies & Configuration:", "📦 依赖和配置:", 1)
+				}
 				result.WriteString(line + "\n")
 			}
 		}
@@ -1229,19 +1239,19 @@ func (t *GetSmartContextTool) Execute(ctx context.Context, params map[string]int
 	}
 	
 	// 环境状态
-	result.WriteString("🌐 Environment Status:\n")
-	result.WriteString(fmt.Sprintf("OS: %s/%s | Go: %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version()))
-	result.WriteString(fmt.Sprintf("Working Directory: %s\n", currentDir))
-	result.WriteString(fmt.Sprintf("Context Last Updated: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	result.WriteString("🌐 环境状态:\n")
+	result.WriteString(fmt.Sprintf("操作系统: %s/%s | Go版本: %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version()))
+	result.WriteString(fmt.Sprintf("工作目录: %s\n", currentDir))
+	result.WriteString(fmt.Sprintf("上下文更新时间: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
 	
 	// AI助手能力提醒
-	result.WriteString("🤖 AI Assistant Ready!\n")
-	result.WriteString("I have full context awareness and can help you with:\n")
-	result.WriteString("• Intelligent file operations based on project type\n")
-	result.WriteString("• Context-aware code analysis and suggestions\n")
-	result.WriteString("• Project-specific development workflow automation\n")
-	result.WriteString("• Smart content search and modification\n")
-	result.WriteString("• Personalized assistance based on your work patterns\n")
+	result.WriteString("🤖 AI助手已就绪!\n")
+	result.WriteString("我具备完整的环境感知能力，可以为您提供:\n")
+	result.WriteString("• 基于项目类型的智能文件操作\n")
+	result.WriteString("• 上下文感知的代码分析和建议\n")
+	result.WriteString("• 项目特定的开发工作流自动化\n")
+	result.WriteString("• 智能内容搜索和修改\n")
+	result.WriteString("• 基于您工作模式的个性化助手\n")
 	
 	return result.String(), nil
 }
@@ -1413,43 +1423,149 @@ func getToolParameters(toolName string) map[string]interface{} {
 		return map[string]interface{}{
 			"file_path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the file to read",
+				"description": "要读取的文件路径",
+				"required":    true,
 			},
 		}
 	case "write_file":
 		return map[string]interface{}{
 			"file_path": map[string]interface{}{
 				"type":        "string", 
-				"description": "Path to the file to write",
+				"description": "要写入的文件路径",
+				"required":    true,
 			},
 			"content": map[string]interface{}{
 				"type":        "string",
-				"description": "Content to write to the file",
+				"description": "要写入的文件内容",
+				"required":    true,
 			},
 		}
 	case "list_files":
 		return map[string]interface{}{
 			"directory": map[string]interface{}{
 				"type":        "string",
-				"description": "Directory path to list (optional, defaults to current directory)",
+				"description": "要列出的目录路径（可选，默认为当前目录）",
+				"required":    false,
 			},
 		}
 	case "search":
 		return map[string]interface{}{
 			"query": map[string]interface{}{
 				"type":        "string",
-				"description": "Text to search for",
+				"description": "要搜索的文本内容",
+				"required":    true,
 			},
 			"file_pattern": map[string]interface{}{
 				"type":        "string", 
-				"description": "File pattern to search in (optional)",
+				"description": "文件匹配模式（可选，如*.txt）",
+				"required":    false,
 			},
 		}
 	case "execute_command":
 		return map[string]interface{}{
 			"command": map[string]interface{}{
 				"type":        "string",
-				"description": "Command to execute",
+				"description": "要执行的系统命令",
+				"required":    true,
+			},
+		}
+	case "file_info":
+		return map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string",
+				"description": "要获取信息的文件或目录路径",
+				"required":    true,
+			},
+		}
+	case "edit_file":
+		return map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string",
+				"description": "要编辑的文件路径",
+				"required":    true,
+			},
+			"start_line": map[string]interface{}{
+				"type":        "integer",
+				"description": "开始编辑的行号（可选）",
+				"required":    false,
+			},
+			"end_line": map[string]interface{}{
+				"type":        "integer", 
+				"description": "结束编辑的行号（可选）",
+				"required":    false,
+			},
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "新的文件内容",
+				"required":    true,
+			},
+		}
+	case "create_directory":
+		return map[string]interface{}{
+			"directory_path": map[string]interface{}{
+				"type":        "string",
+				"description": "要创建的目录路径",
+				"required":    true,
+			},
+		}
+	case "delete_file":
+		return map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string",
+				"description": "要删除的文件或目录路径",
+				"required":    true,
+			},
+		}
+	case "copy_file":
+		return map[string]interface{}{
+			"source_path": map[string]interface{}{
+				"type":        "string",
+				"description": "源文件路径",
+				"required":    true,
+			},
+			"destination_path": map[string]interface{}{
+				"type":        "string",
+				"description": "目标文件路径",
+				"required":    true,
+			},
+		}
+	case "move_file", "rename_file":
+		return map[string]interface{}{
+			"old_path": map[string]interface{}{
+				"type":        "string",
+				"description": "原文件路径",
+				"required":    true,
+			},
+			"new_path": map[string]interface{}{
+				"type":        "string",
+				"description": "新文件路径",
+				"required":    true,
+			},
+		}
+	case "replace_text":
+		return map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string",
+				"description": "要替换文本的文件路径",
+				"required":    true,
+			},
+			"old_text": map[string]interface{}{
+				"type":        "string",
+				"description": "要被替换的文本",
+				"required":    true,
+			},
+			"new_text": map[string]interface{}{
+				"type":        "string",
+				"description": "新的替换文本",
+				"required":    true,
+			},
+		}
+	case "get_project_info":
+		return map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "项目路径（可选，默认为当前目录）",
+				"required":    false,
 			},
 		}
 	default:

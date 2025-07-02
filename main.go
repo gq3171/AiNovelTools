@@ -208,7 +208,26 @@ func addSystemMessage(messages []ai.Message) []ai.Message {
 	
 	systemMessage := ai.Message{
 		Role: "system",
-		Content: "你是一个智能AI助手，可以使用提供的工具来帮助用户。当用户需要操作文件、搜索内容或执行命令时，请使用相应的工具。例如：\n- 查看文件列表时使用list_files工具\n- 读取文件内容时使用read_file工具\n- 搜索内容时使用search工具\n- 执行命令时使用execute_command工具\n请根据用户的请求选择合适的工具并调用。",
+		Content: `你是一个智能AI助手，拥有强大的工具调用能力。请主动使用工具来获取最新、准确的信息。
+
+**重要规则：**
+1. 当用户询问文件相关信息时，必须调用工具获取最新数据
+2. 不要依赖历史信息，始终使用工具获取实时数据
+3. 优先使用工具，再基于结果进行分析和回答
+
+**常用工具映射：**
+- "文件列表/有哪些文件" → list_files 工具
+- "读取文件/查看内容" → read_file 工具  
+- "搜索内容/查找文字" → search 工具
+- "项目信息/项目分析" → get_project_info 工具
+- "执行命令/运行程序" → execute_command 工具
+- "文件详情/文件信息" → file_info 工具
+
+**示例：**
+用户问"有哪些文件?" → 调用 list_files({})
+用户问"读取门派.txt" → 调用 read_file({"file_path": "门派.txt"})
+
+请主动、准确地使用工具来帮助用户！`,
 	}
 	return append([]ai.Message{systemMessage}, messages...)
 }
