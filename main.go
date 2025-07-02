@@ -200,6 +200,19 @@ func handleSpecialCommands(input string, aiClient *ai.Client, sessionManager *se
 	return false
 }
 
+// addSystemMessage 为消息列表添加系统提示
+func addSystemMessage(messages []ai.Message) []ai.Message {
+	if len(messages) > 0 && messages[0].Role == "system" {
+		return messages
+	}
+	
+	systemMessage := ai.Message{
+		Role: "system",
+		Content: "你是一个智能AI助手，可以使用提供的工具来帮助用户。当用户需要操作文件、搜索内容或执行命令时，请使用相应的工具。例如：\n- 查看文件列表时使用list_files工具\n- 读取文件内容时使用read_file工具\n- 搜索内容时使用search工具\n- 执行命令时使用execute_command工具\n请根据用户的请求选择合适的工具并调用。",
+	}
+	return append([]ai.Message{systemMessage}, messages...)
+}
+
 func printHelp(inputManager *input.Manager) {
 	fmt.Println("\033[1;36m📋 可用命令:\033[0m")
 	fmt.Println("  \033[33m/help\033[0m       - 显示此帮助信息")
@@ -596,8 +609,11 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 	// 获取工具定义
 	toolDefinitions := toolManager.GetToolDefinitions()
 	
+	// 添加系统提示指导AI使用工具
+	messages := addSystemMessage(currentSession.GetMessages())
+	
 	// 调用AI模型
-	response, toolCalls, err := aiClient.Chat(ctx, currentSession.GetMessages(), toolDefinitions)
+	response, toolCalls, err := aiClient.Chat(ctx, messages, toolDefinitions)
 	if err != nil {
 		return "", fmt.Errorf("AI request failed: %w", err)
 	}
@@ -614,7 +630,10 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 			currentSession.AddToolResult(result)
 		}
 		
-		response, _, err = aiClient.Chat(ctx, currentSession.GetMessages(), toolDefinitions)
+		// 更新messages以包含工具结果
+		messages = addSystemMessage(currentSession.GetMessages())
+		
+		response, _, err = aiClient.Chat(ctx, messages, toolDefinitions)
 		if err != nil {
 			return "", fmt.Errorf("AI follow-up request failed: %w", err)
 		}
