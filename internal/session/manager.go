@@ -255,3 +255,19 @@ func (m *Manager) SwitchSession(sessionID string) error {
 	m.currentSession = session
 	return nil
 }
+
+func (m *Manager) DeleteSession(sessionID string) error {
+	filePath := filepath.Join(m.sessionDir, sessionID+".json")
+	
+	// 检查文件是否存在
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return fmt.Errorf("session file not found: %s", sessionID)
+	}
+	
+	// 删除会话文件
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("failed to delete session file: %w", err)
+	}
+	
+	return nil
+}

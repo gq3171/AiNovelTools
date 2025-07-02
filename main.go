@@ -179,6 +179,22 @@ func handleSpecialCommands(input string, aiClient *ai.Client, sessionManager *se
 	case "/init":
 		handleInitCommand(aiClient, inputManager)
 		return true
+		
+	case "/switchsession":
+		if len(parts) > 1 {
+			switchSession(sessionManager, parts[1], inputManager)
+		} else {
+			inputManager.PrintError("用法: /switchsession <会话ID>")
+		}
+		return true
+		
+	case "/deletesession":
+		if len(parts) > 1 {
+			deleteSession(sessionManager, parts[1], inputManager)
+		} else {
+			inputManager.PrintError("用法: /deletesession <会话ID>")
+		}
+		return true
 	}
 	
 	return false
@@ -189,12 +205,17 @@ func printHelp(inputManager *input.Manager) {
 	fmt.Println("  \033[33m/help\033[0m       - 显示此帮助信息")
 	fmt.Println("  \033[33m/clear\033[0m      - 清除屏幕")
 	fmt.Println("  \033[33m/status\033[0m     - 显示当前状态")
-	fmt.Println("  \033[33m/sessions\033[0m   - 列出所有会话")
-	fmt.Println("  \033[33m/new\033[0m [名称] - 创建新会话")
-	fmt.Println("  \033[33m/switch\033[0m <模型> - 切换AI模型 (zhipu|deepseek)")
-	fmt.Println("  \033[33m/config\033[0m     - 配置管理")
 	fmt.Println("  \033[33m/init\033[0m       - 分析当前环境并初始化")
+	fmt.Println("  \033[33m/config\033[0m     - 配置管理")
+	fmt.Println("  \033[33m/switch\033[0m <模型> - 切换AI模型 (zhipu|deepseek)")
 	fmt.Println("  \033[33m/exit /quit\033[0m - 退出程序")
+	fmt.Println()
+	fmt.Println("\033[1;36m📝 会话管理:\033[0m")
+	fmt.Println("  \033[33m/sessions\033[0m        - 列出所有会话")
+	fmt.Println("  \033[33m/new\033[0m [名称]      - 创建新会话")
+	fmt.Println("  \033[33m/switchsession\033[0m <ID> - 切换到指定会话")
+	fmt.Println("  \033[33m/deletesession\033[0m <ID> - 删除指定会话")
+	fmt.Println("  \033[90m注: 会话ID可使用前8位短ID\033[0m")
 	fmt.Println()
 	fmt.Println("\033[1;36m🤖 AI对话:\033[0m")
 	fmt.Println("  直接输入你的问题或请求，我会帮助你！")
@@ -301,7 +322,85 @@ func switchProvider(provider string, aiClient *ai.Client, cfg *config.Config, in
 
 func newSession(sessionManager *session.Manager, name string, inputManager *input.Manager) {
 	session := sessionManager.NewSession(name)
+	
+	// 立即保存新会话到磁盘，确保实时同步
+	if err := sessionManager.SaveSession(session); err != nil {
+		inputManager.PrintError(fmt.Sprintf("保存新会话失败: %v", err))
+		return
+	}
+	
 	inputManager.PrintSuccess(fmt.Sprintf("已创建新会话: %s (ID: %s)", session.Name, session.ID[:8]))
+}
+
+func switchSession(sessionManager *session.Manager, sessionID string, inputManager *input.Manager) {
+	// 支持短ID匹配（前8位）
+	sessions, err := sessionManager.ListSessions()
+	if err != nil {
+		inputManager.PrintError(fmt.Sprintf("获取会话列表失败: %v", err))
+		return
+	}
+	
+	var targetSession *session.Session
+	for _, sess := range sessions {
+		if sess.ID == sessionID || sess.ID[:8] == sessionID {
+			targetSession = &sess
+			break
+		}
+	}
+	
+	if targetSession == nil {
+		inputManager.PrintError(fmt.Sprintf("未找到会话ID: %s", sessionID))
+		return
+	}
+	
+	// 先保存当前会话
+	if err := sessionManager.SaveSession(sessionManager.GetCurrentSession()); err != nil {
+		inputManager.PrintWarning(fmt.Sprintf("保存当前会话失败: %v", err))
+	}
+	
+	// 切换到目标会话
+	if err := sessionManager.SwitchSession(targetSession.ID); err != nil {
+		inputManager.PrintError(fmt.Sprintf("切换会话失败: %v", err))
+		return
+	}
+	
+	inputManager.PrintSuccess(fmt.Sprintf("已切换到会话: %s (ID: %s)", targetSession.Name, targetSession.ID[:8]))
+}
+
+func deleteSession(sessionManager *session.Manager, sessionID string, inputManager *input.Manager) {
+	// 支持短ID匹配（前8位）
+	sessions, err := sessionManager.ListSessions()
+	if err != nil {
+		inputManager.PrintError(fmt.Sprintf("获取会话列表失败: %v", err))
+		return
+	}
+	
+	var targetSession *session.Session
+	for _, sess := range sessions {
+		if sess.ID == sessionID || sess.ID[:8] == sessionID {
+			targetSession = &sess
+			break
+		}
+	}
+	
+	if targetSession == nil {
+		inputManager.PrintError(fmt.Sprintf("未找到会话ID: %s", sessionID))
+		return
+	}
+	
+	// 不能删除当前正在使用的会话
+	if targetSession.ID == sessionManager.GetCurrentSession().ID {
+		inputManager.PrintError("不能删除当前正在使用的会话，请先切换到其他会话")
+		return
+	}
+	
+	// 删除会话文件
+	if err := sessionManager.DeleteSession(targetSession.ID); err != nil {
+		inputManager.PrintError(fmt.Sprintf("删除会话失败: %v", err))
+		return
+	}
+	
+	inputManager.PrintSuccess(fmt.Sprintf("已删除会话: %s (ID: %s)", targetSession.Name, targetSession.ID[:8]))
 }
 
 func showConfigHelp(inputManager *input.Manager) {
