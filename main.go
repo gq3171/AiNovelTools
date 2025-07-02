@@ -660,6 +660,14 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 	if len(toolCalls) > 0 {
 		inputManager.PrintInfo(fmt.Sprintf("🔧 正在执行 %d 个工具调用...", len(toolCalls)))
 		
+		// 先添加带有tool_calls的assistant消息
+		assistantMessage := ai.Message{
+			Role:      "assistant",
+			Content:   response,
+			ToolCalls: toolCalls,
+		}
+		currentSession.Messages = append(currentSession.Messages, assistantMessage)
+		
 		toolResults, err := toolManager.ExecuteTools(ctx, toolCalls)
 		if err != nil {
 			return "", fmt.Errorf("tool execution failed: %w", err)
@@ -700,10 +708,13 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 		if err != nil {
 			return "", fmt.Errorf("AI follow-up request failed after %d retries: %w", maxRetries, err)
 		}
+		
+		// 添加最终的AI响应到会话历史
+		currentSession.AddMessage("assistant", response)
+	} else {
+		// 如果没有工具调用，直接添加AI响应到会话历史
+		currentSession.AddMessage("assistant", response)
 	}
-	
-	// 添加AI响应到会话历史
-	currentSession.AddMessage("assistant", response)
 	
 	return response, nil
 }
