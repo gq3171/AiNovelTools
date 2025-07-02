@@ -3,10 +3,13 @@ package tools
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/AiNovelTools/internal/ai"
 )
@@ -35,15 +38,28 @@ func NewManager() *Manager {
 	// 注册内置工具
 	m.RegisterTool(&ReadFileTool{})
 	m.RegisterTool(&WriteFileTool{})
+	m.RegisterTool(&EditFileTool{})
 	m.RegisterTool(&ListFilesTool{})
+	m.RegisterTool(&CreateDirectoryTool{})
+	m.RegisterTool(&DeleteFileTool{})
+	m.RegisterTool(&RenameFileTool{})
+	m.RegisterTool(&CopyFileTool{})
+	m.RegisterTool(&MoveFileTool{})
+	m.RegisterTool(&FileInfoTool{})
 	m.RegisterTool(&ExecuteCommandTool{})
 	m.RegisterTool(&SearchTool{})
+	m.RegisterTool(&ReplaceTextTool{})
 	
 	return m
 }
 
 func (m *Manager) RegisterTool(tool Tool) {
 	m.tools[tool.Name()] = tool
+}
+
+func (m *Manager) GetTool(name string) (Tool, bool) {
+	tool, exists := m.tools[name]
+	return tool, exists
 }
 
 func (m *Manager) ExecuteTools(ctx context.Context, toolCalls []ai.ToolCall) ([]ToolResult, error) {
@@ -244,7 +260,7 @@ func (t *SearchTool) Execute(ctx context.Context, params map[string]interface{})
 
 func isTextFile(filePath string) bool {
 	ext := strings.ToLower(filepath.Ext(filePath))
-	textExts := []string{".go", ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".js", ".ts", ".py", ".java", ".c", ".cpp", ".h", ".hpp"}
+	textExts := []string{".go", ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".js", ".ts", ".py", ".java", ".c", ".cpp", ".h", ".hpp", ".html", ".css", ".xml", ".sql", ".sh", ".bat"}
 	
 	for _, textExt := range textExts {
 		if ext == textExt {
@@ -253,4 +269,305 @@ func isTextFile(filePath string) bool {
 	}
 	
 	return false
+}
+
+// EditFileTool - 编辑文件内容（替换指定行范围或模式）
+type EditFileTool struct{}
+
+func (t *EditFileTool) Name() string { return "edit_file" }
+func (t *EditFileTool) Description() string { return "Edit file content by replacing specific lines or patterns" }
+
+func (t *EditFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	filePath, ok := params["file_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("file_path parameter is required")
+	}
+	
+	// 读取原文件
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	
+	lines := strings.Split(string(content), "\n")
+	
+	// 检查编辑模式
+	if oldText, ok := params["old_text"].(string); ok {
+		// 模式1: 替换指定文本
+		newText, ok := params["new_text"].(string)
+		if !ok {
+			return "", fmt.Errorf("new_text parameter is required when using old_text")
+		}
+		
+		newContent := strings.ReplaceAll(string(content), oldText, newText)
+		if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+			return "", fmt.Errorf("failed to write file: %w", err)
+		}
+		
+		return fmt.Sprintf("Replaced text in file: %s", filePath), nil
+	}
+	
+	if startLine, ok := params["start_line"].(float64); ok {
+		// 模式2: 替换指定行范围
+		endLine, ok := params["end_line"].(float64)
+		if !ok {
+			endLine = startLine
+		}
+		
+		newContent, ok := params["new_content"].(string)
+		if !ok {
+			return "", fmt.Errorf("new_content parameter is required when using line numbers")
+		}
+		
+		start := int(startLine) - 1
+		end := int(endLine) - 1
+		
+		if start < 0 || start >= len(lines) || end < 0 || end >= len(lines) || start > end {
+			return "", fmt.Errorf("invalid line range: %d-%d", start+1, end+1)
+		}
+		
+		// 替换指定行范围
+		newLines := strings.Split(newContent, "\n")
+		result := append(lines[:start], newLines...)
+		result = append(result, lines[end+1:]...)
+		
+		if err := os.WriteFile(filePath, []byte(strings.Join(result, "\n")), 0644); err != nil {
+			return "", fmt.Errorf("failed to write file: %w", err)
+		}
+		
+		return fmt.Sprintf("Edited lines %d-%d in file: %s", int(startLine), int(endLine), filePath), nil
+	}
+	
+	return "", fmt.Errorf("either old_text/new_text or start_line/end_line/new_content parameters are required")
+}
+
+// CreateDirectoryTool - 创建目录
+type CreateDirectoryTool struct{}
+
+func (t *CreateDirectoryTool) Name() string { return "create_directory" }
+func (t *CreateDirectoryTool) Description() string { return "Create a directory and its parent directories if needed" }
+
+func (t *CreateDirectoryTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	dirPath, ok := params["path"].(string)
+	if !ok {
+		return "", fmt.Errorf("path parameter is required")
+	}
+	
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+	
+	return fmt.Sprintf("Directory created: %s", dirPath), nil
+}
+
+// DeleteFileTool - 删除文件或目录
+type DeleteFileTool struct{}
+
+func (t *DeleteFileTool) Name() string { return "delete_file" }
+func (t *DeleteFileTool) Description() string { return "Delete a file or directory" }
+
+func (t *DeleteFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok {
+		return "", fmt.Errorf("path parameter is required")
+	}
+	
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("path does not exist: %s", path)
+	}
+	
+	if info.IsDir() {
+		if err := os.RemoveAll(path); err != nil {
+			return "", fmt.Errorf("failed to delete directory: %w", err)
+		}
+		return fmt.Sprintf("Directory deleted: %s", path), nil
+	} else {
+		if err := os.Remove(path); err != nil {
+			return "", fmt.Errorf("failed to delete file: %w", err)
+		}
+		return fmt.Sprintf("File deleted: %s", path), nil
+	}
+}
+
+// RenameFileTool - 重命名文件或目录
+type RenameFileTool struct{}
+
+func (t *RenameFileTool) Name() string { return "rename_file" }
+func (t *RenameFileTool) Description() string { return "Rename a file or directory" }
+
+func (t *RenameFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	oldPath, ok := params["old_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("old_path parameter is required")
+	}
+	
+	newPath, ok := params["new_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("new_path parameter is required")
+	}
+	
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return "", fmt.Errorf("failed to rename: %w", err)
+	}
+	
+	return fmt.Sprintf("Renamed %s to %s", oldPath, newPath), nil
+}
+
+// CopyFileTool - 复制文件
+type CopyFileTool struct{}
+
+func (t *CopyFileTool) Name() string { return "copy_file" }
+func (t *CopyFileTool) Description() string { return "Copy a file to another location" }
+
+func (t *CopyFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	srcPath, ok := params["src_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("src_path parameter is required")
+	}
+	
+	dstPath, ok := params["dst_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("dst_path parameter is required")
+	}
+	
+	// 创建目标目录
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
+	}
+	
+	// 复制文件
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer src.Close()
+	
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dst.Close()
+	
+	if _, err := io.Copy(dst, src); err != nil {
+		return "", fmt.Errorf("failed to copy file: %w", err)
+	}
+	
+	return fmt.Sprintf("Copied %s to %s", srcPath, dstPath), nil
+}
+
+// MoveFileTool - 移动文件
+type MoveFileTool struct{}
+
+func (t *MoveFileTool) Name() string { return "move_file" }
+func (t *MoveFileTool) Description() string { return "Move a file to another location" }
+
+func (t *MoveFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	srcPath, ok := params["src_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("src_path parameter is required")
+	}
+	
+	dstPath, ok := params["dst_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("dst_path parameter is required")
+	}
+	
+	// 创建目标目录
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
+	}
+	
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return "", fmt.Errorf("failed to move file: %w", err)
+	}
+	
+	return fmt.Sprintf("Moved %s to %s", srcPath, dstPath), nil
+}
+
+// FileInfoTool - 获取文件信息
+type FileInfoTool struct{}
+
+func (t *FileInfoTool) Name() string { return "file_info" }
+func (t *FileInfoTool) Description() string { return "Get detailed information about a file or directory" }
+
+func (t *FileInfoTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok {
+		return "", fmt.Errorf("path parameter is required")
+	}
+	
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to get file info: %w", err)
+	}
+	
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Path: %s\n", path))
+	result.WriteString(fmt.Sprintf("Name: %s\n", info.Name()))
+	result.WriteString(fmt.Sprintf("Size: %d bytes\n", info.Size()))
+	result.WriteString(fmt.Sprintf("Mode: %s\n", info.Mode()))
+	result.WriteString(fmt.Sprintf("Modified: %s\n", info.ModTime().Format(time.RFC3339)))
+	
+	if info.IsDir() {
+		result.WriteString("Type: Directory\n")
+	} else {
+		result.WriteString("Type: File\n")
+		result.WriteString(fmt.Sprintf("Extension: %s\n", filepath.Ext(path)))
+	}
+	
+	return result.String(), nil
+}
+
+// ReplaceTextTool - 批量文本替换（支持正则表达式）
+type ReplaceTextTool struct{}
+
+func (t *ReplaceTextTool) Name() string { return "replace_text" }
+func (t *ReplaceTextTool) Description() string { return "Replace text in files using patterns or regular expressions" }
+
+func (t *ReplaceTextTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	filePath, ok := params["file_path"].(string)
+	if !ok {
+		return "", fmt.Errorf("file_path parameter is required")
+	}
+	
+	pattern, ok := params["pattern"].(string)
+	if !ok {
+		return "", fmt.Errorf("pattern parameter is required")
+	}
+	
+	replacement, ok := params["replacement"].(string)
+	if !ok {
+		return "", fmt.Errorf("replacement parameter is required")
+	}
+	
+	useRegex, _ := params["use_regex"].(bool)
+	
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	
+	var newContent string
+	var count int
+	
+	if useRegex {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return "", fmt.Errorf("invalid regex pattern: %w", err)
+		}
+		
+		newContent = re.ReplaceAllString(string(content), replacement)
+		count = len(re.FindAllString(string(content), -1))
+	} else {
+		oldContent := string(content)
+		newContent = strings.ReplaceAll(oldContent, pattern, replacement)
+		count = strings.Count(oldContent, pattern)
+	}
+	
+	if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	
+	return fmt.Sprintf("Replaced %d occurrences in %s", count, filePath), nil
 }
