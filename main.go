@@ -337,7 +337,11 @@ func printStatus(sessionManager *session.Manager, cfg *config.Config, inputManag
 	fmt.Printf("  \033[36m提供商:\033[0m %s\n", cfg.AI.Provider)
 	
 	if currentModel, exists := cfg.AI.Models[cfg.AI.Provider]; exists {
-		fmt.Printf("  \033[36m模型:\033[0m %s\n", currentModel.Model)
+		modelDisplay := currentModel.Model
+		if currentModel.Model == cfg.Writing.PreferredAIModel {
+			modelDisplay += " \033[32m(已保存)\033[0m"
+		}
+		fmt.Printf("  \033[36m模型:\033[0m %s\n", modelDisplay)
 		if currentModel.APIKey != "" {
 			maskedKey := currentModel.APIKey
 			if len(maskedKey) > 8 {
@@ -413,6 +417,17 @@ func switchProvider(provider string, aiClient *ai.Client, cfg *config.Config, in
 	}
 	
 	cfg.AI.Provider = newProvider
+	
+	// 同时更新写作配置中的首选模型
+	if modelConfig, exists := cfg.AI.Models[newProvider]; exists {
+		cfg.Writing.PreferredAIModel = modelConfig.Model
+	}
+	
+	// 保存模型选择到配置文件
+	if err := cfg.Save(); err != nil {
+		inputManager.PrintWarning(fmt.Sprintf("保存配置失败: %v", err))
+	}
+	
 	inputManager.PrintSuccess(fmt.Sprintf("已切换到 %s 提供商", newProvider))
 	
 	// 更新提示符显示新模型
