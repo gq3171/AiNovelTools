@@ -82,6 +82,7 @@ func NewManager() *Manager {
 	m.RegisterTool(&GetProjectInfoTool{})
 	m.RegisterTool(&GetWorkingContextTool{})
 	m.RegisterTool(&GetSmartContextTool{contextManager: m.contextManager})
+	m.RegisterTool(&SmartTaskPlannerTool{})
 	
 	// 小说写作工具
 	m.RegisterTool(&InitNovelProjectTool{novelManager: m.novelManager})
@@ -1689,6 +1690,13 @@ func getToolParameters(toolName string) map[string]interface{} {
 				"description": "项目路径（可选，默认为当前目录）",
 			},
 		}
+	case "smart_task_planner":
+		return map[string]interface{}{
+			"task_description": map[string]interface{}{
+				"type":        "string",
+				"description": "需要规划的任务描述",
+			},
+		}
 	default:
 		return map[string]interface{}{}
 	}
@@ -1719,7 +1727,201 @@ func getRequiredParameters(toolName string) []string {
 		return []string{"old_path", "new_path"}
 	case "replace_text":
 		return []string{"file_path", "old_text", "new_text"}
+	case "smart_task_planner":
+		return []string{"task_description"}
 	default:
 		return []string{}
 	}
+}
+
+// SmartTaskPlannerTool - 智能任务规划工具
+type SmartTaskPlannerTool struct{}
+
+func (t *SmartTaskPlannerTool) Name() string { return "smart_task_planner" }
+func (t *SmartTaskPlannerTool) Description() string {
+	return "智能任务规划工具，将复杂任务分解为具体的可执行步骤，提供最佳执行顺序和方法建议"
+}
+
+func (t *SmartTaskPlannerTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	taskDesc, ok := params["task_description"].(string)
+	if !ok {
+		return "", fmt.Errorf("task_description parameter is required")
+	}
+	
+	plan := analyzeAndPlanTask(taskDesc)
+	return plan, nil
+}
+
+func analyzeAndPlanTask(taskDesc string) string {
+	taskLower := strings.ToLower(taskDesc)
+	var plan strings.Builder
+	
+	plan.WriteString("🧠 智能任务规划分析\n")
+	plan.WriteString("========================\n\n")
+	
+	// 任务类型识别
+	taskType := identifyTaskType(taskLower)
+	plan.WriteString(fmt.Sprintf("📋 任务类型: %s\n\n", taskType))
+	
+	// 根据任务类型生成具体计划
+	switch {
+	case strings.Contains(taskLower, "小说") || strings.Contains(taskLower, "写作") || strings.Contains(taskLower, "大纲"):
+		plan.WriteString(generateNovelWritingPlan(taskDesc))
+	case strings.Contains(taskLower, "分析") || strings.Contains(taskLower, "检查") || strings.Contains(taskLower, "评价"):
+		plan.WriteString(generateAnalysisPlan(taskDesc))
+	case strings.Contains(taskLower, "修改") || strings.Contains(taskLower, "改进") || strings.Contains(taskLower, "优化"):
+		plan.WriteString(generateImprovementPlan(taskDesc))
+	case strings.Contains(taskLower, "创建") || strings.Contains(taskLower, "生成") || strings.Contains(taskLower, "制作"):
+		plan.WriteString(generateCreationPlan(taskDesc))
+	default:
+		plan.WriteString(generateGeneralPlan(taskDesc))
+	}
+	
+	plan.WriteString("\n🎯 执行建议:\n")
+	plan.WriteString("• 按顺序执行各步骤，确保每步完成后再进行下一步\n")
+	plan.WriteString("• 在关键节点进行质量检查和用户确认\n")
+	plan.WriteString("• 保持文件备份，便于回滚修改\n")
+	plan.WriteString("• 及时记录重要发现和改进想法\n")
+	
+	return plan.String()
+}
+
+func identifyTaskType(taskDesc string) string {
+	switch {
+	case strings.Contains(taskDesc, "小说") || strings.Contains(taskDesc, "写作"):
+		return "小说创作类"
+	case strings.Contains(taskDesc, "分析") || strings.Contains(taskDesc, "检查"):
+		return "分析评估类"
+	case strings.Contains(taskDesc, "修改") || strings.Contains(taskDesc, "改进"):
+		return "改进优化类"
+	case strings.Contains(taskDesc, "创建") || strings.Contains(taskDesc, "生成"):
+		return "创建生成类"
+	default:
+		return "综合处理类"
+	}
+}
+
+func generateNovelWritingPlan(taskDesc string) string {
+	plan := `🔥 小说创作专业流程:
+
+📚 第一阶段：基础准备
+1. 【环境分析】使用 list_files 了解现有文件结构
+2. 【设定收集】读取所有相关设定文件（世界观、角色、门派等）
+3. 【一致性检查】交叉验证各设定文件的逻辑一致性
+4. 【缺失识别】发现设定中的空白和不足之处
+
+📖 第二阶段：内容规划  
+5. 【大纲框架】基于现有设定构建故事主线
+6. 【角色弧线】设计主要角色的成长轨迹
+7. 【冲突设计】安排主要矛盾和转折点
+8. 【章节划分】将故事分解为具体章节
+
+✍️ 第三阶段：创作执行
+9. 【详细大纲】为每个章节制定详细内容
+10. 【写作风格】确定叙述风格和文字特色  
+11. 【质量把控】设置检查点和评估标准
+12. 【迭代完善】根据反馈持续优化
+
+`
+	return plan
+}
+
+func generateAnalysisPlan(taskDesc string) string {
+	plan := `🔍 深度分析专业流程:
+
+🎯 第一阶段：信息收集
+1. 【目标文件识别】确定需要分析的具体文件
+2. 【相关文件发现】查找所有相关联的支持文件
+3. 【完整内容读取】获取所有相关文件的完整内容
+4. 【背景信息整理】建立完整的上下文环境
+
+🧠 第二阶段：深度分析
+5. 【结构分析】评估内容的组织结构和逻辑
+6. 【质量评估】从多个维度进行质量判断
+7. 【一致性检查】发现内部矛盾和逻辑问题
+8. 【完整性验证】识别遗漏和不足之处
+
+💡 第三阶段：洞察提炼
+9. 【优势识别】发现内容的亮点和特色
+10. 【问题诊断】准确定位具体问题所在
+11. 【改进建议】提供针对性的改进方案
+12. 【最佳实践】结合行业标准给出专业建议
+
+`
+	return plan
+}
+
+func generateImprovementPlan(taskDesc string) string {
+	plan := `🚀 改进优化专业流程:
+
+📊 第一阶段：现状评估
+1. 【现有内容审视】全面了解当前状况
+2. 【问题识别定位】准确诊断具体问题  
+3. 【影响范围分析】评估修改的连锁效应
+4. 【优先级排序】确定改进的先后顺序
+
+🔧 第二阶段：方案设计
+5. 【改进策略制定】设计具体的优化方案
+6. 【风险评估】预判可能的问题和风险
+7. 【备份准备】确保可以安全回滚
+8. 【测试计划】设计验证改进效果的方法
+
+⚡ 第三阶段：执行验证
+9. 【分步实施】按计划逐步执行改进
+10. 【实时监控】跟踪改进过程和效果
+11. 【质量验证】确保改进达到预期目标
+12. 【文档更新】记录改进过程和结果
+
+`
+	return plan
+}
+
+func generateCreationPlan(taskDesc string) string {
+	plan := `🎨 创建生成专业流程:
+
+🎯 第一阶段：需求分析
+1. 【目标明确】准确理解创建要求和目标
+2. 【规格定义】确定具体的格式和标准
+3. 【素材收集】收集所需的参考资料
+4. 【约束识别】了解限制条件和边界
+
+🏗️ 第二阶段：设计规划
+5. 【结构设计】规划内容的整体架构
+6. 【模板选择】确定最适合的创建模式
+7. 【质量标准】设定评估和验收标准
+8. 【时间规划】合理安排创建进度
+
+🚀 第三阶段：创建执行
+9. 【内容生成】按设计创建具体内容
+10. 【质量检查】验证内容的准确性和完整性
+11. 【格式调整】确保符合规范要求
+12. 【最终验收】完成创建并交付成果
+
+`
+	return plan
+}
+
+func generateGeneralPlan(taskDesc string) string {
+	plan := `⚙️ 综合处理标准流程:
+
+🔍 第一阶段：需求理解
+1. 【任务分解】将复杂任务拆分为子任务
+2. 【信息收集】获取完成任务所需的所有信息
+3. 【依赖分析】识别任务间的依赖关系
+4. 【资源评估】确定所需的工具和资源
+
+📋 第二阶段：执行规划
+5. 【优先级排序】确定最优的执行顺序
+6. 【方法选择】为每个子任务选择最佳方法
+7. 【质量控制】设置检查点和验证标准
+8. 【风险管控】识别并准备应对潜在问题
+
+✅ 第三阶段：执行验证
+9. 【分步执行】按计划逐步完成各子任务
+10. 【进度跟踪】监控执行进度和质量
+11. 【结果验证】确保每步都达到预期效果
+12. 【总结反馈】记录经验和改进建议
+
+`
+	return plan
 }

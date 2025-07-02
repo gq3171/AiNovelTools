@@ -28,9 +28,42 @@ type Session struct {
 }
 
 type SessionContext struct {
-	WorkingDirectory string            `json:"working_directory"`
-	Environment     map[string]string `json:"environment"`
-	ProjectInfo     ProjectInfo       `json:"project_info"`
+	WorkingDirectory string                 `json:"working_directory"`
+	Environment     map[string]string      `json:"environment"`
+	ProjectInfo     ProjectInfo            `json:"project_info"`
+	SmartMemory     SmartMemory            `json:"smart_memory"`
+}
+
+type SmartMemory struct {
+	UserPreferences    map[string]interface{} `json:"user_preferences"`
+	RecentActions     []ActionRecord         `json:"recent_actions"`
+	KeyFindings       []KeyFinding           `json:"key_findings"`
+	ProjectInsights   []ProjectInsight       `json:"project_insights"`
+	FileRelationships map[string][]string    `json:"file_relationships"`
+}
+
+type ActionRecord struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Action      string    `json:"action"`
+	Files       []string  `json:"files"`
+	Result      string    `json:"result"`
+	UserIntent  string    `json:"user_intent"`
+}
+
+type KeyFinding struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Category    string    `json:"category"`
+	Content     string    `json:"content"`
+	Importance  int       `json:"importance"`
+	RelatedFiles []string `json:"related_files"`
+}
+
+type ProjectInsight struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Type        string    `json:"type"`
+	Description string    `json:"description"`
+	Suggestions []string  `json:"suggestions"`
+	Priority    int       `json:"priority"`
 }
 
 type ProjectInfo struct {
@@ -77,6 +110,13 @@ func (m *Manager) NewSession(name string) *Session {
 			WorkingDirectory: wd,
 			Environment:     make(map[string]string),
 			ProjectInfo:     ProjectInfo{},
+			SmartMemory: SmartMemory{
+				UserPreferences:   make(map[string]interface{}),
+				RecentActions:    []ActionRecord{},
+				KeyFindings:      []KeyFinding{},
+				ProjectInsights:  []ProjectInsight{},
+				FileRelationships: make(map[string][]string),
+			},
 		},
 	}
 	
@@ -278,4 +318,95 @@ func (m *Manager) DeleteSession(sessionID string) error {
 	}
 	
 	return nil
+}
+
+// 智能记忆管理方法
+func (s *Session) RecordAction(action string, files []string, result string, userIntent string) {
+	record := ActionRecord{
+		Timestamp:  time.Now(),
+		Action:     action,
+		Files:      files,
+		Result:     result,
+		UserIntent: userIntent,
+	}
+	
+	s.Context.SmartMemory.RecentActions = append(s.Context.SmartMemory.RecentActions, record)
+	
+	// 保持最近20个动作记录
+	if len(s.Context.SmartMemory.RecentActions) > 20 {
+		s.Context.SmartMemory.RecentActions = s.Context.SmartMemory.RecentActions[1:]
+	}
+	
+	s.UpdatedAt = time.Now()
+}
+
+func (s *Session) AddKeyFinding(category, content string, importance int, relatedFiles []string) {
+	finding := KeyFinding{
+		Timestamp:    time.Now(),
+		Category:     category,
+		Content:      content,
+		Importance:   importance,
+		RelatedFiles: relatedFiles,
+	}
+	
+	s.Context.SmartMemory.KeyFindings = append(s.Context.SmartMemory.KeyFindings, finding)
+	
+	// 保持最重要的50个发现
+	if len(s.Context.SmartMemory.KeyFindings) > 50 {
+		// 按重要性排序，保留最重要的
+		s.Context.SmartMemory.KeyFindings = s.Context.SmartMemory.KeyFindings[1:]
+	}
+	
+	s.UpdatedAt = time.Now()
+}
+
+func (s *Session) AddProjectInsight(insightType, description string, suggestions []string, priority int) {
+	insight := ProjectInsight{
+		Timestamp:   time.Now(),
+		Type:        insightType,
+		Description: description,
+		Suggestions: suggestions,
+		Priority:    priority,
+	}
+	
+	s.Context.SmartMemory.ProjectInsights = append(s.Context.SmartMemory.ProjectInsights, insight)
+	s.UpdatedAt = time.Now()
+}
+
+func (s *Session) UpdateFileRelationship(file string, relatedFiles []string) {
+	s.Context.SmartMemory.FileRelationships[file] = relatedFiles
+	s.UpdatedAt = time.Now()
+}
+
+func (s *Session) GetSmartContextSummary() string {
+	summary := fmt.Sprintf("💡 智能上下文摘要:\n")
+	
+	// 最近动作
+	if len(s.Context.SmartMemory.RecentActions) > 0 {
+		summary += fmt.Sprintf("📋 最近动作: %d个记录\n", len(s.Context.SmartMemory.RecentActions))
+		for i := len(s.Context.SmartMemory.RecentActions) - 1; i >= 0 && i >= len(s.Context.SmartMemory.RecentActions)-3; i-- {
+			action := s.Context.SmartMemory.RecentActions[i]
+			summary += fmt.Sprintf("  • %s: %s\n", action.Action, action.UserIntent)
+		}
+	}
+	
+	// 关键发现
+	if len(s.Context.SmartMemory.KeyFindings) > 0 {
+		summary += fmt.Sprintf("\n🔍 关键发现: %d个\n", len(s.Context.SmartMemory.KeyFindings))
+		for i := len(s.Context.SmartMemory.KeyFindings) - 1; i >= 0 && i >= len(s.Context.SmartMemory.KeyFindings)-3; i-- {
+			finding := s.Context.SmartMemory.KeyFindings[i]
+			summary += fmt.Sprintf("  • [%s] %s\n", finding.Category, finding.Content)
+		}
+	}
+	
+	// 项目洞察
+	if len(s.Context.SmartMemory.ProjectInsights) > 0 {
+		summary += fmt.Sprintf("\n💡 项目洞察: %d个\n", len(s.Context.SmartMemory.ProjectInsights))
+		for i := len(s.Context.SmartMemory.ProjectInsights) - 1; i >= 0 && i >= len(s.Context.SmartMemory.ProjectInsights)-2; i-- {
+			insight := s.Context.SmartMemory.ProjectInsights[i]
+			summary += fmt.Sprintf("  • [%s] %s\n", insight.Type, insight.Description)
+		}
+	}
+	
+	return summary
 }
