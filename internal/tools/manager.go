@@ -206,9 +206,22 @@ func (m *Manager) ExecuteTools(ctx context.Context, toolCalls []ai.ToolCall) ([]
 			continue
 		}
 		
-		params, ok := call.Function["arguments"].(map[string]interface{})
-		if !ok {
-			params = make(map[string]interface{})
+		params := make(map[string]interface{})
+		if arguments, exists := call.Function["arguments"]; exists {
+			switch args := arguments.(type) {
+			case map[string]interface{}:
+				params = args
+			case string:
+				// 如果arguments是JSON字符串，尝试解析
+				if err := json.Unmarshal([]byte(args), &params); err != nil {
+					results = append(results, ToolResult{
+						ToolName:   funcName,
+						Error:      fmt.Errorf("failed to parse arguments JSON: %w", err),
+						ToolCallID: call.ID,
+					})
+					continue
+				}
+			}
 		}
 		
 		tool, exists := m.tools[funcName]
