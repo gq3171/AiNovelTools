@@ -252,7 +252,7 @@ type ReadFileTool struct{}
 
 func (t *ReadFileTool) Name() string { return "read_file" }
 func (t *ReadFileTool) Description() string { 
-	return "读取文件内容。当用户询问文件内容、评价文件质量、分析文件问题时必须使用此工具。例如：'主角设定怎么样?'需要先读取主角设定.txt"
+	return "读取文件内容。🚨重要：使用此工具前必须先调用list_files获取准确的文件名和路径，绝对禁止使用假设路径或/path/to/这样的占位符。必须使用list_files结果中的确切文件名。"
 }
 
 func (t *ReadFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
@@ -304,7 +304,7 @@ type ListFilesTool struct{}
 
 func (t *ListFilesTool) Name() string { return "list_files" }
 func (t *ListFilesTool) Description() string { 
-	return "列出目录中的文件和子目录。当用户询问'有哪些文件'、'目录内容'、'文件列表'时使用此工具"
+	return "列出目录中的文件和子目录。🔥必须第一步：任何涉及文件的请求都必须先调用此工具了解环境！这是获取准确文件名和路径的唯一方法，其他工具依赖此工具的结果。"
 }
 
 func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
@@ -1739,7 +1739,7 @@ type SmartTaskPlannerTool struct{}
 
 func (t *SmartTaskPlannerTool) Name() string { return "smart_task_planner" }
 func (t *SmartTaskPlannerTool) Description() string {
-	return "智能任务规划工具，将复杂任务分解为具体的可执行步骤，提供最佳执行顺序和方法建议"
+	return "智能任务规划工具。⚠️重要限制：只能在已经获取了完整项目信息（通过list_files和read_file）后使用。禁止在不了解具体项目内容时使用此工具给出通用建议。"
 }
 
 func (t *SmartTaskPlannerTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
