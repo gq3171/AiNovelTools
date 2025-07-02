@@ -175,6 +175,10 @@ func handleSpecialCommands(input string, aiClient *ai.Client, sessionManager *se
 			showConfigHelp(inputManager)
 		}
 		return true
+		
+	case "/init":
+		handleInitCommand(aiClient, inputManager)
+		return true
 	}
 	
 	return false
@@ -189,6 +193,7 @@ func printHelp(inputManager *input.Manager) {
 	fmt.Println("  \033[33m/new\033[0m [名称] - 创建新会话")
 	fmt.Println("  \033[33m/switch\033[0m <模型> - 切换AI模型 (zhipu|deepseek)")
 	fmt.Println("  \033[33m/config\033[0m     - 配置管理")
+	fmt.Println("  \033[33m/init\033[0m       - 分析当前环境并初始化")
 	fmt.Println("  \033[33m/exit /quit\033[0m - 退出程序")
 	fmt.Println()
 	fmt.Println("\033[1;36m🤖 AI对话:\033[0m")
@@ -517,4 +522,115 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 	currentSession.AddMessage("assistant", response)
 	
 	return response, nil
+}
+
+// handleInitCommand 处理 /init 命令
+func handleInitCommand(aiClient *ai.Client, inputManager *input.Manager) {
+	inputManager.PrintInfo("🧠 正在分析当前环境...")
+	inputManager.ShowLoading("环境分析中")
+	
+	// 创建工具管理器
+	toolManager := tools.NewManager()
+	ctx := context.Background()
+	
+	// 使用智能上下文工具分析环境
+	if tool, exists := toolManager.GetTool("get_smart_context"); exists {
+		result, err := tool.Execute(ctx, nil)
+		
+		inputManager.HideLoading()
+		
+		if err != nil {
+			inputManager.PrintError(fmt.Sprintf("环境分析失败: %v", err))
+			return
+		}
+		
+		// 直接显示环境分析结果
+		fmt.Println()
+		fmt.Println(result)
+	} else {
+		inputManager.HideLoading()
+		inputManager.PrintError("智能上下文工具不可用")
+		return
+	}
+	
+	// 额外提供一些初始化建议
+	inputManager.PrintInfo("💡 环境分析完成！AI助手已了解当前环境，可以为您提供针对性帮助。")
+	
+	// 获取当前目录来判断项目类型并给出建议
+	currentDir, _ := os.Getwd()
+	projectName := filepath.Base(currentDir)
+	
+	// 检查是否已存在小说项目文件
+	novelProjectFile := filepath.Join(currentDir, "novel_project.json")
+	if _, err := os.Stat(novelProjectFile); err == nil {
+		inputManager.PrintSuccess(fmt.Sprintf("📚 检测到小说项目: %s", projectName))
+		fmt.Println("  可用命令: get_novel_context, get_chapter_context, search_novel_history")
+	} else {
+		// 检查项目类型给出相应建议
+		if isNovelProject(currentDir) {
+			inputManager.PrintWarning("📚 检测到可能的小说写作项目，建议使用以下命令初始化:")
+			fmt.Println("  init_novel_project title=\"项目名称\" author=\"作者\" genre=\"类型\"")
+		}
+	}
+	
+	fmt.Println()
+	inputManager.PrintInfo("现在您可以开始对话，我会基于当前环境为您提供智能帮助！")
+}
+
+// 辅助函数：检测是否可能是小说项目
+func isNovelProject(dir string) bool {
+	// 检查是否包含常见的小说相关文件或目录
+	novelIndicators := []string{
+		"chapters", "章节", "小说", "novel", "story", "stories",
+		"characters", "角色", "人物设定", "plot", "情节",
+		"世界观", "设定", "world", "timeline", "大纲", "outline",
+	}
+	
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	
+	for _, entry := range entries {
+		name := strings.ToLower(entry.Name())
+		for _, indicator := range novelIndicators {
+			if strings.Contains(name, strings.ToLower(indicator)) {
+				return true
+			}
+		}
+		
+		// 检查文件扩展名
+		if strings.HasSuffix(name, ".txt") || strings.HasSuffix(name, ".md") {
+			// 检查文件内容是否像小说
+			if isLikelyNovelFile(filepath.Join(dir, entry.Name())) {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// 辅助函数：检测文件是否像小说内容
+func isLikelyNovelFile(filePath string) bool {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return false
+	}
+	
+	text := string(content)
+	// 简单检测：包含章节标识或对话标识
+	novelKeywords := []string{
+		"第", "章", "节", "回", "卷",
+		`"`, `"`, `'`, `'`, "「", "」",
+		"说道", "说着", "心想", "想到",
+	}
+	
+	for _, keyword := range novelKeywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	
+	return false
 }
