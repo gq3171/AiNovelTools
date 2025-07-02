@@ -1383,3 +1383,76 @@ func (t *SearchNovelHistoryTool) Execute(ctx context.Context, params map[string]
 	
 	return fmt.Sprintf("🔍 搜索小说历史功能正在开发中...\n查询: %s\n最大结果数: %d", query, int(maxResults)), nil
 }
+
+// GetToolDefinitions 获取所有工具的定义，供AI模型使用
+func (m *Manager) GetToolDefinitions() []map[string]interface{} {
+	var tools []map[string]interface{}
+	
+	for name, tool := range m.tools {
+		toolDef := map[string]interface{}{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        name,
+				"description": tool.Description(),
+				"parameters": map[string]interface{}{
+					"type":       "object",
+					"properties": getToolParameters(name),
+				},
+			},
+		}
+		tools = append(tools, toolDef)
+	}
+	
+	return tools
+}
+
+// getToolParameters 获取工具的参数定义
+func getToolParameters(toolName string) map[string]interface{} {
+	switch toolName {
+	case "read_file":
+		return map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to the file to read",
+			},
+		}
+	case "write_file":
+		return map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string", 
+				"description": "Path to the file to write",
+			},
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "Content to write to the file",
+			},
+		}
+	case "list_files":
+		return map[string]interface{}{
+			"directory": map[string]interface{}{
+				"type":        "string",
+				"description": "Directory path to list (optional, defaults to current directory)",
+			},
+		}
+	case "search":
+		return map[string]interface{}{
+			"query": map[string]interface{}{
+				"type":        "string",
+				"description": "Text to search for",
+			},
+			"file_pattern": map[string]interface{}{
+				"type":        "string", 
+				"description": "File pattern to search in (optional)",
+			},
+		}
+	case "execute_command":
+		return map[string]interface{}{
+			"command": map[string]interface{}{
+				"type":        "string",
+				"description": "Command to execute",
+			},
+		}
+	default:
+		return map[string]interface{}{}
+	}
+}

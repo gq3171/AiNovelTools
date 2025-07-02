@@ -42,7 +42,7 @@ type Client struct {
 }
 
 type AIProvider interface {
-	Chat(ctx context.Context, messages []Message) (string, []ToolCall, error)
+	Chat(ctx context.Context, messages []Message, tools []map[string]interface{}) (string, []ToolCall, error)
 	GetModels(ctx context.Context) ([]string, error)
 }
 
@@ -64,8 +64,8 @@ func NewClient(config Config) *Client {
 	}
 }
 
-func (c *Client) Chat(ctx context.Context, messages []Message) (string, []ToolCall, error) {
-	return c.provider.Chat(ctx, messages)
+func (c *Client) Chat(ctx context.Context, messages []Message, tools []map[string]interface{}) (string, []ToolCall, error) {
+	return c.provider.Chat(ctx, messages, tools)
 }
 
 func (c *Client) GetModels(ctx context.Context) ([]string, error) {

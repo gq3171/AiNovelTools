@@ -62,10 +62,22 @@ func NewDeepseekProvider(config ModelConfig) *DeepseekProvider {
 	}
 }
 
-func (d *DeepseekProvider) Chat(ctx context.Context, messages []Message) (string, []ToolCall, error) {
+func (d *DeepseekProvider) Chat(ctx context.Context, messages []Message, tools []map[string]interface{}) (string, []ToolCall, error) {
 	reqBody := DeepseekRequest{
 		Model:    d.config.Model,
 		Messages: messages,
+	}
+	
+	// 添加工具定义
+	if len(tools) > 0 {
+		deepseekTools := make([]DeepseekTool, len(tools))
+		for i, tool := range tools {
+			deepseekTools[i] = DeepseekTool{
+				Type:     tool["type"].(string),
+				Function: tool["function"].(map[string]interface{}),
+			}
+		}
+		reqBody.Tools = deepseekTools
 	}
 
 	jsonData, err := json.Marshal(reqBody)

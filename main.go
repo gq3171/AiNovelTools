@@ -593,8 +593,11 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 	// 添加用户消息到会话历史
 	currentSession.AddMessage("user", input)
 	
+	// 获取工具定义
+	toolDefinitions := toolManager.GetToolDefinitions()
+	
 	// 调用AI模型
-	response, toolCalls, err := aiClient.Chat(ctx, currentSession.GetMessages())
+	response, toolCalls, err := aiClient.Chat(ctx, currentSession.GetMessages(), toolDefinitions)
 	if err != nil {
 		return "", fmt.Errorf("AI request failed: %w", err)
 	}
@@ -611,7 +614,7 @@ func processInput(ctx context.Context, aiClient *ai.Client, toolManager *tools.M
 			currentSession.AddToolResult(result)
 		}
 		
-		response, _, err = aiClient.Chat(ctx, currentSession.GetMessages())
+		response, _, err = aiClient.Chat(ctx, currentSession.GetMessages(), toolDefinitions)
 		if err != nil {
 			return "", fmt.Errorf("AI follow-up request failed: %w", err)
 		}

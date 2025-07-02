@@ -62,10 +62,22 @@ func NewZhipuProvider(config ModelConfig) *ZhipuProvider {
 	}
 }
 
-func (z *ZhipuProvider) Chat(ctx context.Context, messages []Message) (string, []ToolCall, error) {
+func (z *ZhipuProvider) Chat(ctx context.Context, messages []Message, tools []map[string]interface{}) (string, []ToolCall, error) {
 	reqBody := ZhipuRequest{
 		Model:    z.config.Model,
 		Messages: messages,
+	}
+	
+	// 添加工具定义
+	if len(tools) > 0 {
+		zhipuTools := make([]ZhipuTool, len(tools))
+		for i, tool := range tools {
+			zhipuTools[i] = ZhipuTool{
+				Type:     tool["type"].(string),
+				Function: tool["function"].(map[string]interface{}),
+			}
+		}
+		reqBody.Tools = zhipuTools
 	}
 
 	jsonData, err := json.Marshal(reqBody)
