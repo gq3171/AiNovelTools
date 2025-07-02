@@ -1531,7 +1531,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"file_path": map[string]interface{}{
 				"type":        "string",
 				"description": "要读取的文件路径",
-				"required":    true,
 			},
 		}
 	case "write_file":
@@ -1539,12 +1538,10 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"file_path": map[string]interface{}{
 				"type":        "string", 
 				"description": "要写入的文件路径",
-				"required":    true,
 			},
 			"content": map[string]interface{}{
 				"type":        "string",
 				"description": "要写入的文件内容",
-				"required":    true,
 			},
 		}
 	case "list_files":
@@ -1552,7 +1549,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"directory": map[string]interface{}{
 				"type":        "string",
 				"description": "要列出的目录路径（可选，默认为当前目录）",
-				"required":    false,
 			},
 		}
 	case "search":
@@ -1560,37 +1556,30 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"query": map[string]interface{}{
 				"type":        "string",
 				"description": "要搜索的文本内容或正则表达式",
-				"required":    true,
 			},
 			"path": map[string]interface{}{
 				"type":        "string",
 				"description": "搜索路径（可选，默认当前目录）",
-				"required":    false,
 			},
 			"file_pattern": map[string]interface{}{
 				"type":        "string", 
 				"description": "文件匹配模式（可选，如*.txt）",
-				"required":    false,
 			},
 			"use_regex": map[string]interface{}{
 				"type":        "boolean",
 				"description": "是否使用正则表达式搜索",
-				"required":    false,
 			},
 			"case_sensitive": map[string]interface{}{
 				"type":        "boolean",
 				"description": "是否区分大小写",
-				"required":    false,
 			},
 			"show_line_numbers": map[string]interface{}{
 				"type":        "boolean",
 				"description": "是否显示行号",
-				"required":    false,
 			},
 			"max_results": map[string]interface{}{
 				"type":        "integer",
 				"description": "最大结果数量（默认50）",
-				"required":    false,
 			},
 		}
 	case "execute_command":
@@ -1598,7 +1587,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"command": map[string]interface{}{
 				"type":        "string",
 				"description": "要执行的系统命令",
-				"required":    true,
 			},
 		}
 	case "file_info":
@@ -1606,7 +1594,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"file_path": map[string]interface{}{
 				"type":        "string",
 				"description": "要获取信息的文件或目录路径",
-				"required":    true,
 			},
 		}
 	case "edit_file":
@@ -1614,22 +1601,18 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"file_path": map[string]interface{}{
 				"type":        "string",
 				"description": "要编辑的文件路径",
-				"required":    true,
 			},
 			"start_line": map[string]interface{}{
 				"type":        "integer",
 				"description": "开始编辑的行号（可选）",
-				"required":    false,
 			},
 			"end_line": map[string]interface{}{
 				"type":        "integer", 
 				"description": "结束编辑的行号（可选）",
-				"required":    false,
 			},
 			"content": map[string]interface{}{
 				"type":        "string",
 				"description": "新的文件内容",
-				"required":    true,
 			},
 		}
 	case "create_directory":
@@ -1637,7 +1620,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"directory_path": map[string]interface{}{
 				"type":        "string",
 				"description": "要创建的目录路径",
-				"required":    true,
 			},
 		}
 	case "delete_file":
@@ -1645,7 +1627,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"file_path": map[string]interface{}{
 				"type":        "string",
 				"description": "要删除的文件或目录路径",
-				"required":    true,
 			},
 		}
 	case "copy_file":
@@ -1653,12 +1634,10 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"source_path": map[string]interface{}{
 				"type":        "string",
 				"description": "源文件路径",
-				"required":    true,
 			},
 			"destination_path": map[string]interface{}{
 				"type":        "string",
 				"description": "目标文件路径",
-				"required":    true,
 			},
 		}
 	case "move_file", "rename_file":
@@ -1666,12 +1645,10 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"old_path": map[string]interface{}{
 				"type":        "string",
 				"description": "原文件路径",
-				"required":    true,
 			},
 			"new_path": map[string]interface{}{
 				"type":        "string",
 				"description": "新文件路径",
-				"required":    true,
 			},
 		}
 	case "replace_text":
@@ -1679,17 +1656,14 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"file_path": map[string]interface{}{
 				"type":        "string",
 				"description": "要替换文本的文件路径",
-				"required":    true,
 			},
 			"old_text": map[string]interface{}{
 				"type":        "string",
 				"description": "要被替换的文本",
-				"required":    true,
 			},
 			"new_text": map[string]interface{}{
 				"type":        "string",
 				"description": "新的替换文本",
-				"required":    true,
 			},
 		}
 	case "get_project_info":
@@ -1697,7 +1671,6 @@ func getToolParameters(toolName string) map[string]interface{} {
 			"path": map[string]interface{}{
 				"type":        "string",
 				"description": "项目路径（可选，默认为当前目录）",
-				"required":    false,
 			},
 		}
 	default:
