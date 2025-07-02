@@ -39,9 +39,10 @@ type EnhancedTool interface {
 }
 
 type ToolResult struct {
-	ToolName string
-	Result   string
-	Error    error
+	ToolName   string
+	Result     string
+	Error      error
+	ToolCallID string
 }
 
 func NewManager() *Manager {
@@ -213,17 +214,19 @@ func (m *Manager) ExecuteTools(ctx context.Context, toolCalls []ai.ToolCall) ([]
 		tool, exists := m.tools[funcName]
 		if !exists {
 			results = append(results, ToolResult{
-				ToolName: funcName,
-				Error:    fmt.Errorf("unknown tool: %s", funcName),
+				ToolName:   funcName,
+				Error:      fmt.Errorf("unknown tool: %s", funcName),
+				ToolCallID: call.ID,
 			})
 			continue
 		}
 		
 		result, err := tool.Execute(ctx, params)
 		results = append(results, ToolResult{
-			ToolName: funcName,
-			Result:   result,
-			Error:    err,
+			ToolName:   funcName,
+			Result:     result,
+			Error:      err,
+			ToolCallID: call.ID,
 		})
 	}
 	

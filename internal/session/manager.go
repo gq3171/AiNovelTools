@@ -101,7 +101,15 @@ func (s *Session) AddToolResult(result tools.ToolResult) {
 		content = fmt.Sprintf("Error: %v", result.Error)
 	}
 	
-	s.AddMessage("tool", fmt.Sprintf("Tool: %s\nResult: %s", result.ToolName, content))
+	// 创建工具响应消息，包含tool_call_id
+	message := ai.Message{
+		Role:       "tool",
+		Content:    content,
+		ToolCallID: result.ToolCallID,
+	}
+	
+	s.Messages = append(s.Messages, message)
+	s.UpdatedAt = time.Now()
 }
 
 func (s *Session) GetMessages() []ai.Message {
